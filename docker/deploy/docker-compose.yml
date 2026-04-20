@@ -5,7 +5,7 @@ services:
     hostname: otel-collector
     command: ["--config=/etc/otelcol/config.yaml"]
     volumes:
-      - ./configs/otel-collector-config.yml:/etc/otelcol/config.yaml
+      - ../../configs/otel-collector-config.yml:/etc/otelcol/config.yaml
     ports:
       - "4317:4317"  # OTLP gRPC
       - "4318:4318"  # OTLP HTTP
@@ -38,7 +38,7 @@ services:
     container_name: promtail-container
     volumes:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
-      - ./configs/promtail/config.yml:/etc/promtail/config.yml
+      - ../../configs/promtail/config.yml:/etc/promtail/config.yml
       - /var/run/docker.sock:/var/run/docker.sock:ro
     command: -config.file=/etc/promtail/config.yml
     networks:
@@ -55,8 +55,8 @@ services:
       - '--enable-feature=exemplar-storage,otlp-receiver'
       - '--web.enable-otlp-receiver'
     volumes:
-      - ./configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-      - ./configs/prometheus/rules:/etc/prometheus/rules
+      - ../../configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ../../configs/prometheus/rules:/etc/prometheus/rules
       - prometheus_data:/prometheus
     ports:
       - "9090:9090"
@@ -71,7 +71,7 @@ services:
     ports:
       - 9093:9093
     volumes:
-      - ./configs/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+      - ../../configs/alertmanager.yml:/etc/alertmanager/alertmanager.yml
     networks:
       - app-network
   grafana:
@@ -83,9 +83,9 @@ services:
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
       - GF_AUTH_DISABLE_LOGIN_FORM=true
     volumes:
-      - ./configs/grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yaml
-      - ./configs/grafana/dashboards/dashboard.yml:/etc/grafana/provisioning/dashboards/dashboard.yml
-      - ./configs/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ../../configs/grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yaml
+      - ../../configs/grafana/dashboards/dashboard.yml:/etc/grafana/provisioning/dashboards/dashboard.yml
+      - ../../configs/grafana/dashboards:/etc/grafana/provisioning/dashboards
     ports:
       - "13000:3000"
     depends_on:
@@ -122,7 +122,7 @@ services:
     environment:
      - RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS=-rabbitmq_prometheus return_per_object_metrics true
     volumes:
-     - ./configs/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins #enable prometheus plugin(expose metric endpoint)
+     - ../../configs/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins #enable prometheus plugin(expose metric endpoint)
     ports:
      - 5672:5672
      - 15672:15672
@@ -145,8 +145,8 @@ services:
    ports:
     - "5432:5432"
    volumes:
-    - ./configs/postgres/init:/docker-entrypoint-initdb.d
-    - ./configs/postgres/conf/postgresql.conf:/etc/postgresql/postgresql.conf
+    - ../../configs/postgres/init:/docker-entrypoint-initdb.d
+    - ../../configs/postgres/conf/postgresql.conf:/etc/postgresql/postgresql.conf
    command: postgres -c config_file=/etc/postgresql/postgresql.conf
    networks:
     - app-network
@@ -158,7 +158,7 @@ services:
       DATA_SOURCE_NAME: "postgresql://exporter:exporterpass@postgres:5432/productsdatabase?sslmode=disable"
       PG_EXPORTER_EXTEND_QUERY_PATH: /etc/postgres_exporter/queries.yaml
     volumes:
-      - ./configs/postgres-exporter/queries.yaml:/etc/postgres_exporter/queries.yaml
+      - ../../configs/postgres-exporter/queries.yaml:/etc/postgres_exporter/queries.yaml
     ports:
       - "9187:9187"
     depends_on:
@@ -166,10 +166,7 @@ services:
     networks:
       - app-network
   productsmicroservice.api:
-    image: productsmicroserviceapi:dev
-    build:
-      context: .
-      dockerfile: ProductsMicroService.API/Dockerfile
+    image: lambdazb/productmicroservice:v1.0
     container_name: productMicroservice-container
     hostname: productapi
     environment:
@@ -218,10 +215,7 @@ services:
       redis:
        condition: service_started
   apigateway:
-    image: apigateway:dev
-    build:
-      context: .
-      dockerfile: ApiGatewayExample/Dockerfile
+    image: lambdazb/apigateway:v1.0
     container_name: apiGateway-container
     hostname: apigateway
     environment:
@@ -237,10 +231,7 @@ services:
      test-microservice1:
        condition: service_started
   test-microservice1:
-    image: testmicroserviceapi:dev
-    build:
-      context: .
-      dockerfile: TestMicroservice.API/Dockerfile
+    image: lambdazb/testmicroservice:v1.0
     container_name: testMicroservice-container-1
     hostname: testapi1
     environment:

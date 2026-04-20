@@ -25,7 +25,7 @@ route:
 receivers:
   - name: 'slack-notifications'
     slack_configs:
-      - api_url: 'Your_Slack_Webhook_URL_Here'
+      - api_url: 'Your_Api_Url_Here'
         channel: '#alert'
         send_resolved: true #send when alert is resolved
         title: |

@@ -3,7 +3,7 @@ using Ocelot.Logging;
 using Ocelot.Provider.Consul.Interfaces;
 using Ocelot.Provider.Consul;
 
-namespace ApiGatewayExample.ConsulServiceBuilder
+namespace ApiGateway.ConsulServiceBuilder
 {
     public class MyConsulServiceBuilder : DefaultConsulServiceBuilder
     {

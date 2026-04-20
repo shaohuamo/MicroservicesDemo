@@ -5,26 +5,26 @@ FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS base
 USER $APP_UID
 WORKDIR /app
 EXPOSE 8080
-EXPOSE 8081
 
 
 # This stage is used to build the service project
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
-COPY ["ApiGatewayExample/ApiGatewayExample.csproj", "ApiGatewayExample/"]
-RUN dotnet restore "./ApiGatewayExample/ApiGatewayExample.csproj"
+COPY ["src/backend/Services/Test/TestMicroservice.API/TestMicroservice.API.csproj", "src/backend/Services/Test/TestMicroservice.API/"]
+COPY ["src/backend/BuildingBlocks/CommonService/CommonService.csproj", "src/backend/BuildingBlocks/CommonService/"]
+RUN dotnet restore "./src/backend/Services/Test/TestMicroservice.API/TestMicroservice.API.csproj"
 COPY . .
-WORKDIR "/src/ApiGatewayExample"
-RUN dotnet build "./ApiGatewayExample.csproj" -c $BUILD_CONFIGURATION -o /app/build
+WORKDIR "/src/src/backend/Services/Test/TestMicroservice.API"
+RUN dotnet build "./TestMicroservice.API.csproj" -c $BUILD_CONFIGURATION -o /app/build
 
 # This stage is used to publish the service project to be copied to the final stage
 FROM build AS publish
 ARG BUILD_CONFIGURATION=Release
-RUN dotnet publish "./ApiGatewayExample.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
+RUN dotnet publish "./TestMicroservice.API.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
 
 # This stage is used in production or when running from VS in regular mode (Default when not using the Debug configuration)
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
-ENTRYPOINT ["dotnet", "ApiGatewayExample.dll"]
+ENTRYPOINT ["dotnet", "TestMicroservice.API.dll"]

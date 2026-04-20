@@ -1,27 +1,32 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <UserSecretsId>2b809575-2d80-473a-82ec-c379aaa4ec83</UserSecretsId>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+    <DockerComposeProjectPath>..\..\..\..\..\docker\debug\docker-compose.dcproj</DockerComposeProjectPath>
   </PropertyGroup>
 
 		<ItemGroup>
-				<PackageReference Include="Ocelot" Version="24.1.0" />
-				<PackageReference Include="Ocelot.Provider.Consul" Version="24.1.0" />
-				<PackageReference Include="Ocelot.Provider.Polly" Version="24.1.0" />
 				<PackageReference Include="Consul" Version="1.7.14.9" />
+				<PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.14" />
+				<PackageReference Include="Steeltoe.Discovery.Consul" Version="4.0.0" />
 				<PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.21.0" />
-				<PackageReference Include="OpenTelemetry.Exporter.Console" Version="1.15.0" />
+				<PackageReference Include="RabbitMQ.Client" Version="7.2.0" />
+				<PackageReference Include="OpenTelemetry.Api" Version="1.15.0" />
 				<PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.15.0" />
 				<PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.15.0" />
 				<PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.15.1" />
 				<PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.15.0" />
 				<PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.15.0" />
 				<PackageReference Include="OpenTelemetry.Instrumentation.Process" Version="1.15.0-beta.1" />
-				
+				<PackageReference Include="OpenTelemetry.Resources.Container" Version="1.15.0-beta.1" />
+				<PackageReference Include="OpenTelemetry.Resources.Host" Version="1.15.0-beta.2" />
 		</ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\BuildingBlocks\CommonService\CommonService.csproj" />
+  </ItemGroup>
 
 </Project>

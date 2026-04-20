@@ -1,0 +1,186 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 18
+VisualStudioVersion = 18.5.11709.299 stable
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "configs", "configs", "{A100000A-0000-0000-0000-00000000000A}"
+	ProjectSection(SolutionItems) = preProject
+		configs\alertmanager.yml = configs\alertmanager.yml
+		configs\otel-collector-config.yml = configs\otel-collector-config.yml
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{A1000001-0000-0000-0000-000000000001}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "backend", "backend", "{A1000002-0000-0000-0000-000000000002}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Gateway", "Gateway", "{A1000003-0000-0000-0000-000000000003}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Services", "Services", "{A1000004-0000-0000-0000-000000000004}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Products", "Products", "{A1000005-0000-0000-0000-000000000005}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Test", "Test", "{A1000006-0000-0000-0000-000000000006}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "BuildingBlocks", "BuildingBlocks", "{A1000007-0000-0000-0000-000000000007}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "frontend", "frontend", "{A100000B-0000-0000-0000-00000000000B}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "admin-web", "admin-web", "{A100000C-0000-0000-0000-00000000000C}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{A1000008-0000-0000-0000-000000000008}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "docker", "docker", "{A1000009-0000-0000-0000-000000000009}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "debug", "debug", "{A100000D-0000-0000-0000-00000000000D}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "deploy", "deploy", "{A100000E-0000-0000-0000-00000000000E}"
+	ProjectSection(SolutionItems) = preProject
+		docker\deploy\docker-compose.yml = docker\deploy\docker-compose.yml
+	EndProjectSection
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ApiGateway", "src\backend\Gateway\ApiGateway\ApiGateway.csproj", "{1BBF2958-15DA-4789-8A6E-7EC47CBF8BA6}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TestMicroservice.API", "src\backend\Services\Test\TestMicroservice.API\TestMicroservice.API.csproj", "{F9D13BBE-25A1-4558-AB0E-110E3FADD4C0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProductsMicroService.API", "src\backend\Services\Products\ProductsMicroService.API\ProductsMicroService.API.csproj", "{6DDD1805-ADA8-4361-AF55-F878351E357F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProductsMicroservice.Core", "src\backend\Services\Products\ProductsMicroservice.Core\ProductsMicroservice.Core.csproj", "{52AD8A68-5E56-48CD-8C76-17CBE89B5E0E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProductsMicroservice.Infrastructure", "src\backend\Services\Products\ProductsMicroservice.Infrastructure\ProductsMicroservice.Infrastructure.csproj", "{66CE0A6E-1F26-4001-B7A8-FF8EB2D2283C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProductsServiceUnitTests", "tests\ProductsServiceUnitTests\ProductsServiceUnitTests.csproj", "{CDD5344C-85A5-436A-A7DA-72139BD3DE84}"
+EndProject
+Project("{E53339B2-1760-4266-BCC7-CA923CBCF16C}") = "docker-compose", "docker\debug\docker-compose.dcproj", "{81DDED9D-158B-E303-5F62-77A2896D2A5A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CommonService", "src\backend\BuildingBlocks\CommonService\CommonService.csproj", "{A85D814D-3B53-4C7E-A737-4751ADB0E2E3}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "grafana", "grafana", "{A1000020-0000-0000-0000-000000000020}"
+	ProjectSection(SolutionItems) = preProject
+		configs\grafana\datasource.yml = configs\grafana\datasource.yml
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "dashboards", "dashboards", "{A1000021-0000-0000-0000-000000000021}"
+	ProjectSection(SolutionItems) = preProject
+		configs\grafana\dashboards\ASP.NET.json = configs\grafana\dashboards\ASP.NET.json
+		configs\grafana\dashboards\dashboard.yml = configs\grafana\dashboards\dashboard.yml
+		configs\grafana\dashboards\Logs.json = configs\grafana\dashboards\Logs.json
+		configs\grafana\dashboards\PostgreSQL.json = configs\grafana\dashboards\PostgreSQL.json
+		configs\grafana\dashboards\RabbitMQ.json = configs\grafana\dashboards\RabbitMQ.json
+		configs\grafana\dashboards\Redis.json = configs\grafana\dashboards\Redis.json
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "postgres", "postgres", "{A1000022-0000-0000-0000-000000000022}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "conf", "conf", "{A1000023-0000-0000-0000-000000000023}"
+	ProjectSection(SolutionItems) = preProject
+		configs\postgres\conf\postgresql.conf = configs\postgres\conf\postgresql.conf
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "init", "init", "{A1000024-0000-0000-0000-000000000024}"
+	ProjectSection(SolutionItems) = preProject
+		configs\postgres\init\sql1.sql = configs\postgres\init\sql1.sql
+		configs\postgres\init\sql2.sql = configs\postgres\init\sql2.sql
+		configs\postgres\init\sql3.sql = configs\postgres\init\sql3.sql
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "postgres-exporter", "postgres-exporter", "{A1000025-0000-0000-0000-000000000025}"
+	ProjectSection(SolutionItems) = preProject
+		configs\postgres-exporter\queries.yaml = configs\postgres-exporter\queries.yaml
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "prometheus", "prometheus", "{A1000026-0000-0000-0000-000000000026}"
+	ProjectSection(SolutionItems) = preProject
+		configs\prometheus\prometheus.yml = configs\prometheus\prometheus.yml
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "rules", "rules", "{A1000027-0000-0000-0000-000000000027}"
+	ProjectSection(SolutionItems) = preProject
+		configs\prometheus\rules\prometheus-alert.rules.yml = configs\prometheus\rules\prometheus-alert.rules.yml
+		configs\prometheus\rules\rabbitmq-alert-rules.yml = configs\prometheus\rules\rabbitmq-alert-rules.yml
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "promtail", "promtail", "{A1000028-0000-0000-0000-000000000028}"
+	ProjectSection(SolutionItems) = preProject
+		configs\promtail\config.yml = configs\promtail\config.yml
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "rabbitmq", "rabbitmq", "{A1000029-0000-0000-0000-000000000029}"
+	ProjectSection(SolutionItems) = preProject
+		configs\rabbitmq\enabled_plugins = configs\rabbitmq\enabled_plugins
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{1BBF2958-15DA-4789-8A6E-7EC47CBF8BA6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1BBF2958-15DA-4789-8A6E-7EC47CBF8BA6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1BBF2958-15DA-4789-8A6E-7EC47CBF8BA6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1BBF2958-15DA-4789-8A6E-7EC47CBF8BA6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F9D13BBE-25A1-4558-AB0E-110E3FADD4C0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F9D13BBE-25A1-4558-AB0E-110E3FADD4C0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F9D13BBE-25A1-4558-AB0E-110E3FADD4C0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F9D13BBE-25A1-4558-AB0E-110E3FADD4C0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6DDD1805-ADA8-4361-AF55-F878351E357F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6DDD1805-ADA8-4361-AF55-F878351E357F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6DDD1805-ADA8-4361-AF55-F878351E357F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6DDD1805-ADA8-4361-AF55-F878351E357F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{52AD8A68-5E56-48CD-8C76-17CBE89B5E0E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{52AD8A68-5E56-48CD-8C76-17CBE89B5E0E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{52AD8A68-5E56-48CD-8C76-17CBE89B5E0E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{52AD8A68-5E56-48CD-8C76-17CBE89B5E0E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{66CE0A6E-1F26-4001-B7A8-FF8EB2D2283C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{66CE0A6E-1F26-4001-B7A8-FF8EB2D2283C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{66CE0A6E-1F26-4001-B7A8-FF8EB2D2283C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{66CE0A6E-1F26-4001-B7A8-FF8EB2D2283C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CDD5344C-85A5-436A-A7DA-72139BD3DE84}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CDD5344C-85A5-436A-A7DA-72139BD3DE84}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CDD5344C-85A5-436A-A7DA-72139BD3DE84}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CDD5344C-85A5-436A-A7DA-72139BD3DE84}.Release|Any CPU.Build.0 = Release|Any CPU
+		{81DDED9D-158B-E303-5F62-77A2896D2A5A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{81DDED9D-158B-E303-5F62-77A2896D2A5A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{81DDED9D-158B-E303-5F62-77A2896D2A5A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{81DDED9D-158B-E303-5F62-77A2896D2A5A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A85D814D-3B53-4C7E-A737-4751ADB0E2E3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A85D814D-3B53-4C7E-A737-4751ADB0E2E3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A85D814D-3B53-4C7E-A737-4751ADB0E2E3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A85D814D-3B53-4C7E-A737-4751ADB0E2E3}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{A1000002-0000-0000-0000-000000000002} = {A1000001-0000-0000-0000-000000000001}
+		{A1000003-0000-0000-0000-000000000003} = {A1000002-0000-0000-0000-000000000002}
+		{A1000004-0000-0000-0000-000000000004} = {A1000002-0000-0000-0000-000000000002}
+		{A1000005-0000-0000-0000-000000000005} = {A1000004-0000-0000-0000-000000000004}
+		{A1000006-0000-0000-0000-000000000006} = {A1000004-0000-0000-0000-000000000004}
+		{A1000007-0000-0000-0000-000000000007} = {A1000002-0000-0000-0000-000000000002}
+		{A100000B-0000-0000-0000-00000000000B} = {A1000001-0000-0000-0000-000000000001}
+		{A100000C-0000-0000-0000-00000000000C} = {A100000B-0000-0000-0000-00000000000B}
+		{A100000D-0000-0000-0000-00000000000D} = {A1000009-0000-0000-0000-000000000009}
+		{A100000E-0000-0000-0000-00000000000E} = {A1000009-0000-0000-0000-000000000009}
+		{1BBF2958-15DA-4789-8A6E-7EC47CBF8BA6} = {A1000003-0000-0000-0000-000000000003}
+		{F9D13BBE-25A1-4558-AB0E-110E3FADD4C0} = {A1000006-0000-0000-0000-000000000006}
+		{6DDD1805-ADA8-4361-AF55-F878351E357F} = {A1000005-0000-0000-0000-000000000005}
+		{52AD8A68-5E56-48CD-8C76-17CBE89B5E0E} = {A1000005-0000-0000-0000-000000000005}
+		{66CE0A6E-1F26-4001-B7A8-FF8EB2D2283C} = {A1000005-0000-0000-0000-000000000005}
+		{CDD5344C-85A5-436A-A7DA-72139BD3DE84} = {A1000008-0000-0000-0000-000000000008}
+		{81DDED9D-158B-E303-5F62-77A2896D2A5A} = {A100000D-0000-0000-0000-00000000000D}
+		{A85D814D-3B53-4C7E-A737-4751ADB0E2E3} = {A1000007-0000-0000-0000-000000000007}
+		{A1000020-0000-0000-0000-000000000020} = {A100000A-0000-0000-0000-00000000000A}
+		{A1000021-0000-0000-0000-000000000021} = {A1000020-0000-0000-0000-000000000020}
+		{A1000022-0000-0000-0000-000000000022} = {A100000A-0000-0000-0000-00000000000A}
+		{A1000023-0000-0000-0000-000000000023} = {A1000022-0000-0000-0000-000000000022}
+		{A1000024-0000-0000-0000-000000000024} = {A1000022-0000-0000-0000-000000000022}
+		{A1000025-0000-0000-0000-000000000025} = {A100000A-0000-0000-0000-00000000000A}
+		{A1000026-0000-0000-0000-000000000026} = {A100000A-0000-0000-0000-00000000000A}
+		{A1000027-0000-0000-0000-000000000027} = {A1000026-0000-0000-0000-000000000026}
+		{A1000028-0000-0000-0000-000000000028} = {A100000A-0000-0000-0000-00000000000A}
+		{A1000029-0000-0000-0000-000000000029} = {A100000A-0000-0000-0000-00000000000A}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {DD85AE07-7C76-4BDB-981B-290564C56E5F}
+	EndGlobalSection
+EndGlobal

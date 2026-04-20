@@ -1,4 +1,4 @@
-using ApiGatewayExample.ConsulServiceBuilder;
+using ApiGateway.ConsulServiceBuilder;
 using Ocelot.DependencyInjection;
 using Ocelot.Middleware;
 using Ocelot.Provider.Consul;

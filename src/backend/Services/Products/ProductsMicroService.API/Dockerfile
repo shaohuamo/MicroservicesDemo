@@ -11,13 +11,13 @@ EXPOSE 8080
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
-COPY ["ProductsMicroService.API/ProductsMicroService.API.csproj", "ProductsMicroService.API/"]
-COPY ["CommonService/CommonService.csproj", "CommonService/"]
-COPY ["ProductsMicroservice.Core/ProductsMicroservice.Core.csproj", "ProductsMicroservice.Core/"]
-COPY ["ProductsMicroservice.Infrastructure/ProductsMicroservice.Infrastructure.csproj", "ProductsMicroservice.Infrastructure/"]
-RUN dotnet restore "./ProductsMicroService.API/ProductsMicroService.API.csproj"
+COPY ["src/backend/Services/Products/ProductsMicroService.API/ProductsMicroService.API.csproj", "src/backend/Services/Products/ProductsMicroService.API/"]
+COPY ["src/backend/BuildingBlocks/CommonService/CommonService.csproj", "src/backend/BuildingBlocks/CommonService/"]
+COPY ["src/backend/Services/Products/ProductsMicroservice.Core/ProductsMicroservice.Core.csproj", "src/backend/Services/Products/ProductsMicroservice.Core/"]
+COPY ["src/backend/Services/Products/ProductsMicroservice.Infrastructure/ProductsMicroservice.Infrastructure.csproj", "src/backend/Services/Products/ProductsMicroservice.Infrastructure/"]
+RUN dotnet restore "./src/backend/Services/Products/ProductsMicroService.API/ProductsMicroService.API.csproj"
 COPY . .
-WORKDIR "/src/ProductsMicroService.API"
+WORKDIR "/src/src/backend/Services/Products/ProductsMicroService.API"
 RUN dotnet build "./ProductsMicroService.API.csproj" -c $BUILD_CONFIGURATION -o /app/build
 
 # This stage is used to publish the service project to be copied to the final stage

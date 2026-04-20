@@ -7,7 +7,7 @@
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
     <DocumentationFile>api.xml</DocumentationFile>
-    <DockerComposeProjectPath>..\docker-compose.dcproj</DockerComposeProjectPath>
+    <DockerComposeProjectPath>..\..\..\..\..\docker\debug\docker-compose.dcproj</DockerComposeProjectPath>
   </PropertyGroup>
 
   <ItemGroup>
@@ -27,7 +27,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\CommonService\CommonService.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\CommonService\CommonService.csproj" />
     <ProjectReference Include="..\ProductsMicroservice.Core\ProductsMicroservice.Core.csproj" />
     <ProjectReference Include="..\ProductsMicroservice.Infrastructure\ProductsMicroservice.Infrastructure.csproj" />
   </ItemGroup>

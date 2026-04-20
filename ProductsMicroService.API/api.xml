@@ -18,37 +18,49 @@
             <param name="productsAdderService"></param>
             <param name="productsDeleterService"></param>
         </member>
-        <member name="M:ProductsMicroService.API.Controllers.ProductsController.GetAllProducts">
+        <member name="M:ProductsMicroService.API.Controllers.ProductsController.GetAllProductsAsync">
             <summary>
             get all products
             </summary>
             <returns></returns>
         </member>
-        <member name="M:ProductsMicroService.API.Controllers.ProductsController.GetProductByProductId(System.Guid)">
+        <member name="M:ProductsMicroService.API.Controllers.ProductsController.GetProductByProductIdAsync(System.Nullable{System.Guid})">
             <summary>
             get products by productId
             </summary>
             <returns></returns>
         </member>
-        <member name="M:ProductsMicroService.API.Controllers.ProductsController.Post(ProductsMicroservice.Core.DTO.ProductAddRequest)">
+        <member name="M:ProductsMicroService.API.Controllers.ProductsController.AddNewProductAsync(ProductsMicroservice.Core.DTO.ProductAddRequest)">
             <summary>
             add a new product
             </summary>
             <param name="productAddRequest"></param>
             <returns></returns>
         </member>
-        <member name="M:ProductsMicroService.API.Controllers.ProductsController.Put(ProductsMicroservice.Core.DTO.ProductUpdateRequest)">
+        <member name="M:ProductsMicroService.API.Controllers.ProductsController.UpdateProductAsync(ProductsMicroservice.Core.DTO.ProductUpdateRequest)">
             <summary>
             update a product
             </summary>
             <param name="productUpdateRequest"></param>
             <returns></returns>
         </member>
-        <member name="M:ProductsMicroService.API.Controllers.ProductsController.Delete(System.Guid)">
+        <member name="M:ProductsMicroService.API.Controllers.ProductsController.DeleteProductAsync(System.Nullable{System.Guid})">
             <summary>
             delete a product by productId
             </summary>
             <param name="productId"></param>
+            <returns></returns>
+        </member>
+        <member name="T:ProductsMicroService.API.Extensions.ObservabilityExtensions">
+            <summary>
+            ObservabilityExtensions
+            </summary>
+        </member>
+        <member name="M:ProductsMicroService.API.Extensions.ObservabilityExtensions.AddObservability(Microsoft.AspNetCore.Builder.WebApplicationBuilder)">
+            <summary>
+            Add Telemetry with OpenTelemetry
+            </summary>
+            <param name="builder"></param>
             <returns></returns>
         </member>
         <member name="T:ProductsMicroService.API.Middleware.ExceptionHandlingMiddleware">

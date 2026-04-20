@@ -1,0 +1,50 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: a2c150c3-b92f-40fb-aee3-d4f871bdcb92
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      exemplarTraceIdDestinations:
+        - datasourceUid: b4ce00d6-faea-4269-9747-83ab72e1e8de
+          name: trace_id
+          urlDisplayLabel: "View in Jaeger"
+
+  - name: Loki
+    type: loki
+    access: proxy
+    uid: a62b7f46-ea9c-4eba-be9f-5c3d18d1f0f4
+    url: http://loki:3100
+    editable: true
+    jsonData:
+      derivedFields:
+        - datasourceUid: b4ce00d6-faea-4269-9747-83ab72e1e8de
+          matcherRegex: '"trace[iI]d"\s*:\s*"([^"]+)"'
+          name: TraceID
+          url: '$${__value.raw}'
+          internalLinkEnabled: true
+
+  - name: Jaeger
+    type: jaeger
+    uid: b4ce00d6-faea-4269-9747-83ab72e1e8de
+    url: http://jaeger:16686
+    editable: true
+    access: proxy
+    jsonData:
+      nodeGraph:
+        enabled: true
+      tracesToLogsV2:
+        datasourceUid: a62b7f46-ea9c-4eba-be9f-5c3d18d1f0f4
+        spanStartTimeShift: -10s
+        spanEndTimeShift: 10s
+        tags: 
+          - key: service.name
+            value: service_name
+        filterByTraceId: true
+        filterBySpanId: true
+        customQuery: true
+        query: '{job=~".+"} | json | spanid = "$${__span.spanId}"'

@@ -1,6 +1,6 @@
 ﻿using RabbitMQ.Client;
 
-namespace ProductsMicroservice.Core.RabbitMQ;
+namespace CommonService.RabbitMQ;
 
 public interface IRabbitMQConnectionProvider : IAsyncDisposable
 {

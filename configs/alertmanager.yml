@@ -1,0 +1,58 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: 'slack-notifications'
+  # Grouping prevents alert spam
+  group_by: ['alertname', 'queue', 'severity']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 1h
+
+  routes:
+    # Critical alerts - faster notifications
+    - matchers:
+        - severity="critical"
+      group_wait: 10s
+      repeat_interval: 30m
+
+    # Warning alerts - less noisy
+    - matchers:
+        - severity="warning"
+      group_wait: 1m # send alert after 1m
+      repeat_interval: 2h
+
+receivers:
+  - name: 'slack-notifications'
+    slack_configs:
+      - api_url: 'Your_Slack_Webhook_URL_Here'
+        channel: '#alert'
+        send_resolved: true #send when alert is resolved
+        title: |
+          {{ if .CommonAnnotations.summary }}
+            [{{ .Status }}] {{ .CommonAnnotations.summary }}
+          {{ else }}
+            [{{ .Status }}] {{ .CommonLabels.alertname }}
+          {{ end }}
+        text: |
+          *Alert:* {{ .CommonLabels.alertname }}
+          *Severity:* {{ .CommonLabels.severity }}
+          {{ if .CommonLabels.queue }}
+          *Queue:* {{ .CommonLabels.queue }}
+          {{ end }}
+
+          *Description:*
+          {{ .CommonAnnotations.description }}
+
+          {{ range .Alerts }}
+          - *Started:* {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          {{ end }}
+        color: '{{ if eq .CommonLabels.severity "critical" }}danger{{ else }}warning{{ end }}'
+
+inhibit_rules:
+  # Suppress warning if critical is firing
+  - source_matchers:
+      - severity="critical"
+    target_matchers:
+      - severity="warning"
+    equal: ['alertname', 'queue']

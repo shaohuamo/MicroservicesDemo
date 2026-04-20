@@ -9,6 +9,6 @@ namespace ProductsMicroservice.Core.ServiceContracts
         /// </summary>
         /// <param name="productAddRequest">Product to insert</param>
         /// <returns>Product after inserting or null if unsuccessful</returns>
-        Task<ProductResponse?> AddProduct(ProductAddRequest productAddRequest);
+        Task<ProductResponse?> AddProductAsync(ProductAddRequest productAddRequest);
     }
 }

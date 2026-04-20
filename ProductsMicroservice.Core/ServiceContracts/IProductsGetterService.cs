@@ -10,14 +10,14 @@ namespace ProductsMicroservice.Core.ServiceContracts
         /// Retrieves products from the products repository
         /// </summary>
         /// <returns>Returns list of ProductResponse objects</returns>
-        Task<IEnumerable<ProductResponse?>> GetProducts();
+        Task<IEnumerable<ProductResponse?>> GetProductsAsync();
 
 
         /// <summary>
         /// Returns a single product that matches with given condition
         /// </summary>
-        /// <param name="conditionExpression">Express that represents the condition to check</param>
+        /// <param name="productId"></param>
         /// <returns>Returns matching product or null</returns>
-        Task<ProductResponse?> GetProductByCondition(Expression<Func<Product, bool>> conditionExpression);
+        Task<ProductResponse?> GetProductByProductIdAsync(Guid productId);
     }
 }

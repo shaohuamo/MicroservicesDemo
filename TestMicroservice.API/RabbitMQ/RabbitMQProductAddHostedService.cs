@@ -12,7 +12,7 @@
         //will be invoked when app start
         public async Task StartAsync(CancellationToken cancellationToken)
         {
-            await _productAddConsumer.Consume();
+            await _productAddConsumer.ConsumeAsync();
         }
 
         //will be invoked when app stop

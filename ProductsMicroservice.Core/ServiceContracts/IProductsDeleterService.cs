@@ -7,5 +7,5 @@ public interface IProductsDeleterService
     /// </summary>
     /// <param name="productId">ProductId to search and delete</param>
     /// <returns>Returns true if the deletion is successful; otherwise false</returns>
-    Task<bool> DeleteProduct(Guid productId);
+    Task<bool> DeleteProductAsync(Guid productId);
 }

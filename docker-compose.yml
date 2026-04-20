@@ -1,0 +1,300 @@
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.100.0
+    container_name: otel-collector-container
+    hostname: otel-collector
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./configs/otel-collector-config.yml:/etc/otelcol/config.yaml
+    ports:
+      - "4317:4317"  # OTLP gRPC
+      - "4318:4318"  # OTLP HTTP
+      - "8889:8889"  # Prometheus exporter metrics
+    networks:
+      - app-network
+    depends_on:
+      - jaeger
+      - loki
+  jaeger:
+    image: jaegertracing/all-in-one:1.54
+    container_name: jaeger-container
+    hostname: jaeger
+    ports:
+      - "16686:16686"   # UI
+    networks:
+      - app-network
+  loki:
+    image: grafana/loki:2.9.3
+    container_name: loki-container
+    hostname: loki
+    volumes:
+      - ./loki-data:/tmp/loki
+    ports:
+      - "3200:3100"
+    networks:
+      - app-network
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: promtail-container
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./configs/promtail/config.yml:/etc/promtail/config.yml
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - app-network
+    depends_on:
+      - loki
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    container_name: prometheus-container
+    hostname: prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--enable-feature=exemplar-storage,otlp-receiver'
+      - '--web.enable-otlp-receiver'
+    volumes:
+      - ./configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./configs/prometheus/rules:/etc/prometheus/rules
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - otel-collector
+    networks:
+      - app-network
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: alertmanager-container
+    hostname: alertmanager
+    ports:
+      - 9093:9093
+    volumes:
+      - ./configs/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    networks:
+      - app-network
+  grafana:
+    image: grafana/grafana:10.3.3
+    container_name: grafana-container
+    hostname: grafana
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+    volumes:
+      - ./configs/grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yaml
+      - ./configs/grafana/dashboards/dashboard.yml:/etc/grafana/provisioning/dashboards/dashboard.yml
+      - ./configs/grafana/dashboards:/etc/grafana/provisioning/dashboards
+    ports:
+      - "13000:3000"
+    depends_on:
+      - prometheus
+      - loki
+      - jaeger
+    networks:
+      - app-network
+  redis:
+    image: redis:latest
+    container_name: redis-container
+    hostname: redis
+    command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru
+    ports:
+     - 6379:6379
+    networks:
+     - app-network
+  redis-exporter:
+      image: oliver006/redis_exporter:v1.58.0
+      container_name: redis-exporter-container
+      hostname: redis-exporter
+      environment:
+        - REDIS_ADDR=redis:6379
+      ports:
+        - "9121:9121"
+      depends_on:
+        - redis
+      networks:
+        - app-network
+  rabbitmq:
+    image: rabbitmq:4.2-management
+    container_name: rabbitmq-container
+    hostname: rabbitmq
+    environment:
+     - RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS=-rabbitmq_prometheus return_per_object_metrics true
+    volumes:
+     - ./configs/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins #enable prometheus plugin(expose metric endpoint)
+    ports:
+     - 5672:5672
+     - 15672:15672
+     - 15692:15692   # Prometheus metrics
+    healthcheck:
+     test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+     interval: 10s
+     timeout: 10s
+     retries: 10
+     start_period: 60s
+    networks:
+     - app-network
+  postgres:
+   image: postgres:16-alpine
+   container_name: postgres-container
+   hostname: postgres
+   environment:
+    - POSTGRES_USER=postgres
+    - POSTGRES_PASSWORD=admin
+   ports:
+    - "5432:5432"
+   volumes:
+    - ./configs/postgres/init:/docker-entrypoint-initdb.d
+    - ./configs/postgres/conf/postgresql.conf:/etc/postgresql/postgresql.conf
+   command: postgres -c config_file=/etc/postgresql/postgresql.conf
+   networks:
+    - app-network
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: postgres-exporter-container
+    hostname: postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://exporter:exporterpass@postgres:5432/productsdatabase?sslmode=disable"
+      PG_EXPORTER_EXTEND_QUERY_PATH: /etc/postgres_exporter/queries.yaml
+    volumes:
+      - ./configs/postgres-exporter/queries.yaml:/etc/postgres_exporter/queries.yaml
+    ports:
+      - "9187:9187"
+    depends_on:
+      - postgres
+    networks:
+      - app-network
+  productsmicroservice.api:
+    image: productsmicroserviceapi:dev
+    build:
+      context: .
+      dockerfile: ProductsMicroService.API/Dockerfile
+    container_name: productMicroservice-container
+    hostname: productapi
+    environment:
+     - ASPNETCORE_ENVIRONMENT=Development
+     - POSTGRES__HOST=postgres
+     - POSTGRES__PORT=5432
+     - POSTGRES__DATABASE=productsdatabase
+     - POSTGRES__USER=postgres
+     - POSTGRES__PASSWORD=admin
+     - POSTGRES__MaxRetryCount=5
+     - POSTGRES__MaxRetryDelaySeconds=10
+     - RabbitMQ__HostName=rabbitmq
+     - RabbitMQ__UserName=guest
+     - RabbitMQ__Password=guest
+     - RabbitMQ__Port=5672
+     - RabbitMQ__MaxRetryAttempts=10
+     - RabbitMQ__InitialDelaySeconds=2
+     - RabbitMQ__MaxDelaySeconds=30
+     - RabbitMQ__NetworkRecoveryIntervalSeconds=10
+     - RabbitMQ_Products_Exchange=products.exchange
+     - RabbitMQ_Products_RoutingKey=products.add
+     - Redis__ConnectionString=redis:6379
+     - Redis__InstanceName=ProductMicroservice_
+     - Redis__ConnectRetry=5
+     - Redis__ConnectTimeout=5000
+     - Redis__SyncTimeout=5000
+     - Redis__MaxReconnectDelay=5000
+     - Redis__InitialReconnectDelay=1000
+     - Redis__AbortOnConnectFail=false
+     - Redis__DelayedDeleteMs=2000
+     - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+     - OTEL_RESOURCE_ATTRIBUTES=deployment.environment=development
+     - TestMicroserviceName=testapi1
+     - TestMicroservicePort=8080
+     - CacheOptions__DefaultExpirationMinutes=120
+     - CacheOptions__NegativeCacheExpirationMinutes=10
+    ports:
+     - 8581:8080
+    networks:
+     - app-network
+    depends_on:
+      rabbitmq:
+       condition: service_healthy
+      postgres: #service name
+       condition: service_started
+      redis:
+       condition: service_started
+  apigateway:
+    image: apigateway:dev
+    build:
+      context: .
+      dockerfile: ApiGatewayExample/Dockerfile
+    container_name: apiGateway-container
+    hostname: apigateway
+    environment:
+    - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+    - OTEL_RESOURCE_ATTRIBUTES=service.name=apigateway,deployment.environment=development 
+    ports:
+     - 9080:8080
+    networks:
+     - app-network
+    depends_on:
+     consul: #service name
+       condition: service_healthy
+     test-microservice1:
+       condition: service_started
+  test-microservice1:
+    image: testmicroserviceapi:dev
+    build:
+      context: .
+      dockerfile: TestMicroservice.API/Dockerfile
+    container_name: testMicroservice-container-1
+    hostname: testapi1
+    environment:
+     - App_Name=App_A
+     - Consul__Host=consul
+     - Consul__Port=8500
+     - Consul__Discovery__ServiceName=testservice
+     - Consul__Discovery__Hostname=testapi1
+     - Consul__Discovery__Port=8080 #test-microservice port inside container
+     - RabbitMQ__HostName=rabbitmq
+     - RabbitMQ__UserName=guest
+     - RabbitMQ__Password=guest
+     - RabbitMQ__Port=5672
+     - RabbitMQ__MaxRetryAttempts=10
+     - RabbitMQ__InitialDelaySeconds=2
+     - RabbitMQ__MaxDelaySeconds=30
+     - RabbitMQ__NetworkRecoveryIntervalSeconds=10
+     - RabbitMQ_Products_Exchange=products.exchange
+     - RabbitMQ_Products_RoutingKey=products.add
+     - RabbitMQ_Products_Queue=products.add.queue
+     - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+     - OTEL_RESOURCE_ATTRIBUTES=service.name=test.api,deployment.environment=development 
+    ports:
+     - 8580:8080
+    networks:
+     - app-network
+    depends_on:
+     rabbitmq: #service name
+      condition: service_healthy
+     consul:
+      condition: service_healthy
+  consul:
+    image: hashicorp/consul:latest
+    container_name: consul-container
+    hostname: consul 
+    command: >
+      agent -server 
+      -bootstrap-expect=1 
+      -ui 
+      -node=consul 
+      -client=0.0.0.0 
+      -hcl="disable_update_check = true"
+    healthcheck:
+     test: ["CMD", "consul", "operator", "raft", "list-peers"]
+     interval: 10s
+     timeout: 5s
+     retries: 5
+     start_period: 60s
+    ports:
+     - 8500:8500
+    networks:
+     - app-network
+networks:
+  app-network:
+    driver: bridge
+volumes:
+  prometheus_data:

@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using ProductsMicroservice.Core.DTO;
 using ProductsMicroservice.Core.ServiceContracts;
+using System.ComponentModel.DataAnnotations;
 
 namespace ProductsMicroService.API.Controllers
 {
@@ -15,6 +16,7 @@ namespace ProductsMicroService.API.Controllers
         private readonly IProductsAdderService _productsAdderService;
         private readonly IProductsDeleterService _productsDeleterService;
         private readonly IProductsUpdaterService _productsUpdaterService;
+
         /// <summary>
         /// constructor
         /// </summary>
@@ -39,9 +41,9 @@ namespace ProductsMicroService.API.Controllers
         /// </summary>
         /// <returns></returns>
         [HttpGet]
-        public async Task<IEnumerable<ProductResponse?>> GetAllProducts()
+        public async Task<IEnumerable<ProductResponse?>> GetAllProductsAsync()
         {
-            var products = await _productsGetterService.GetProducts();
+            var products = await _productsGetterService.GetProductsAsync();
             return products;
         }
 
@@ -51,10 +53,9 @@ namespace ProductsMicroService.API.Controllers
         /// </summary>
         /// <returns></returns>
         [HttpGet("search/product-id/{productId:guid}")]
-        public async Task<ActionResult<ProductResponse>> GetProductByProductId(Guid productId)
+        public async Task<ActionResult<ProductResponse>> GetProductByProductIdAsync([Required] Guid? productId)
         {
-            ProductResponse? product = await _productsGetterService.GetProductByCondition(
-                temp => temp.ProductId == productId);
+            ProductResponse? product = await _productsGetterService.GetProductByProductIdAsync(productId!.Value);
 
             if (product == null)
                 return NotFound();
@@ -69,9 +70,14 @@ namespace ProductsMicroService.API.Controllers
         /// <param name="productAddRequest"></param>
         /// <returns></returns>
         [HttpPost]
-        public async Task<IActionResult> Post(ProductAddRequest productAddRequest)
+        public async Task<IActionResult> AddNewProductAsync(ProductAddRequest? productAddRequest)
         {
-            var addedProductResponse = await _productsAdderService.AddProduct(productAddRequest);
+            if (productAddRequest == null)
+            {
+                return BadRequest("The request body cannot be empty and must be a valid JSON.");
+            }
+
+            var addedProductResponse = await _productsAdderService.AddProductAsync(productAddRequest);
 
             if (addedProductResponse == null)
             {
@@ -80,7 +86,7 @@ namespace ProductsMicroService.API.Controllers
 
             //add location header in response like below
             //api/products/search/product-id/xxxxxxxxxxxxxxxxxxx
-            return CreatedAtAction(nameof(GetProductByProductId),
+            return CreatedAtAction(nameof(GetProductByProductIdAsync),
                 new{ productId = addedProductResponse.ProductId}, addedProductResponse);
         }
 
@@ -91,9 +97,14 @@ namespace ProductsMicroService.API.Controllers
         /// <param name="productUpdateRequest"></param>
         /// <returns></returns>
         [HttpPut]
-        public async Task<IActionResult> Put(ProductUpdateRequest productUpdateRequest)
+        public async Task<IActionResult> UpdateProductAsync(ProductUpdateRequest? productUpdateRequest)
         {
-            var updatedProductResponse = await _productsUpdaterService.UpdateProduct(productUpdateRequest);
+            if (productUpdateRequest == null)
+            {
+                return BadRequest("The request body cannot be empty and must be a valid JSON.");
+            }
+
+            var updatedProductResponse = await _productsUpdaterService.UpdateProductAsync(productUpdateRequest);
 
             if (updatedProductResponse != null)
                 return Ok(updatedProductResponse);
@@ -108,10 +119,10 @@ namespace ProductsMicroService.API.Controllers
         /// </summary>
         /// <param name="productId"></param>
         /// <returns></returns>
-        [HttpDelete("{ProductID:guid}")]
-        public async Task<IActionResult> Delete(Guid productId)
+        [HttpDelete("{ProductId:guid}")]
+        public async Task<IActionResult> DeleteProductAsync([Required] Guid? productId)
         {
-            bool isDeleted = await _productsDeleterService.DeleteProduct(productId);
+            bool isDeleted = await _productsDeleterService.DeleteProductAsync(productId!.Value);
             if (isDeleted)
                 return Ok(true);
             else

@@ -9,6 +9,13 @@ namespace ProductsMicroservice.Infrastructure.DbContext
         {
         }
 
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            modelBuilder.HasDefaultSchema("public");
+
+            modelBuilder.Entity<Product>().ToTable("Products");
+        }
+
         public DbSet<Product> Products { get; set; }
     }
 }

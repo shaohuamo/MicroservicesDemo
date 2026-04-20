@@ -12,6 +12,7 @@ FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 COPY ["TestMicroservice.API/TestMicroservice.API.csproj", "TestMicroservice.API/"]
+COPY ["CommonService/CommonService.csproj", "CommonService/"]
 RUN dotnet restore "./TestMicroservice.API/TestMicroservice.API.csproj"
 COPY . .
 WORKDIR "/src/TestMicroservice.API"

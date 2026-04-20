@@ -1,147 +1,191 @@
 ﻿using AutoMapper;
+using FluentAssertions;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Moq;
 using ProductsMicroservice.Core.Domain.Entities;
 using ProductsMicroservice.Core.Domain.RepositoryContracts;
 using ProductsMicroservice.Core.DTO;
-using ProductsMicroservice.Core.RabbitMQ;
+using ProductsMicroservice.Core.MessageQueue.Abstractions;
+using ProductsMicroservice.Core.MessageQueue.Messages;
 using ProductsMicroservice.Core.Services;
 
-namespace ProductsUnitTests;
+namespace ProductsMicroservice.Tests;
 
 public class ProductsAdderServiceTests
 {
-    private readonly Mock<IMapper> _mapperMock;
-    private readonly Mock<IProductsRepository> _productsRepositoryMock;
-    private readonly Mock<IRabbitMQPublisher> _rabbitMQPublisherMock;
-    private readonly Mock<IConfiguration> _configurationMock;
+    private readonly Mock<IMapper> _mapperMock = new();
+    private readonly Mock<IProductsRepository> _repoMock = new();
+    private readonly Mock<IProductMessagePublisher> _publisherMock = new();
+    private readonly Mock<IConfiguration> _configMock = new();
+    private readonly Mock<ILogger<ProductsAdderService>> _loggerMock = new();
 
-    private readonly ProductsAdderService _productAdderService;
+    private readonly ProductsAdderService _service;
+
+    private const string RoutingKey = "product.add";
 
     public ProductsAdderServiceTests()
     {
-        _mapperMock = new Mock<IMapper>();
-        _productsRepositoryMock = new Mock<IProductsRepository>();
-        _rabbitMQPublisherMock = new Mock<IRabbitMQPublisher>();
-        _configurationMock = new Mock<IConfiguration>();
+        _configMock.Setup(x => x["RabbitMQ_Products_RoutingKey"])
+            .Returns(RoutingKey);
 
-        _configurationMock
-            .Setup(c => c["RabbitMQ_Products_RoutingKey"])
-            .Returns("products.add");
-
-        _productAdderService = new ProductsAdderService(
+        _service = new ProductsAdderService(
             _mapperMock.Object,
-            _productsRepositoryMock.Object,
-            _rabbitMQPublisherMock.Object,
-            _configurationMock.Object
+            _repoMock.Object,
+            _publisherMock.Object,
+            _configMock.Object,
+            _loggerMock.Object
         );
     }
 
-    [Fact]
-    public async Task AddProduct_NullRequest_ThrowsArgumentNullException()
-    {
-        // Arrange
-        ProductAddRequest? request = null;
+    #region Null Input
 
-        // Act & Assert
-        await Assert.ThrowsAsync<ArgumentNullException>(
-            () => _productAdderService.AddProduct(request!)
-        );
+    [Fact]
+    public async Task AddProductAsync_ShouldThrow_WhenRequestIsNull()
+    {
+        Func<Task> act = async () => await _service.AddProductAsync(null!);
+
+        await act.Should().ThrowAsync<ArgumentNullException>();
     }
 
-    [Fact]
-    public async Task AddProduct_RepositoryReturnsNull_ReturnsNull()
-    {
-        // Arrange
-        var request = new ProductAddRequest();
+    #endregion
 
-        var mappedProduct = new Product();
-
-        _mapperMock
-            .Setup(m => m.Map<Product>(request))
-            .Returns(mappedProduct);
-
-        _productsRepositoryMock
-            .Setup(r => r.AddProduct(mappedProduct))
-            .ReturnsAsync((Product?)null);
-
-        // Act
-        var result = await _productAdderService.AddProduct(request);
-
-        // Assert
-        Assert.Null(result);
-
-        _rabbitMQPublisherMock.Verify(
-            p => p.Publish(It.IsAny<string>(), It.IsAny<ProductAddMessage>()),
-            Times.Never
-        );
-    }
+    #region Success
 
     [Fact]
-    public async Task AddProduct_ValidRequest_AddsProductAndPublishesMessage()
+    public async Task AddProductAsync_ShouldAddProduct_AndPublishMessage()
     {
-        // Arrange
-        var request = new ProductAddRequest
-        {
-            ProductName = "Test Product",
-            UnitPrice = 100,
-            QuantityInStock = 10
-        };
+        var request = CreateRequest();
 
-        var mappedProduct = new Product
-        {
-            ProductName = "Test Product",
-            UnitPrice = 100,
-            QuantityInStock = 10
-        };
-
-        var addedProduct = new Product
+        var product = new Product
         {
             ProductId = Guid.NewGuid(),
+            ProductName = request.ProductName,
+            UnitPrice = request.UnitPrice,
+            QuantityInStock = request.QuantityInStock
+        };
+
+        var response = new ProductResponse();
+
+        _mapperMock.Setup(x => x.Map<Product>(request)).Returns(product);
+        _repoMock.Setup(x => x.AddProductAsync(product)).ReturnsAsync(product);
+        _mapperMock.Setup(x => x.Map<ProductResponse>(product)).Returns(response);
+
+        var result = await _service.AddProductAsync(request);
+
+        result.Should().NotBeNull();
+
+        _repoMock.Verify(x => x.AddProductAsync(product), Times.Once);
+
+        _publisherMock.Verify(x => x.PublishAsync(
+            RoutingKey,
+            It.Is<ProductAddMessage>(msg =>
+                msg.ProductId == product.ProductId &&
+                msg.ProductName == product.ProductName &&
+                msg.UnitPrice == product.UnitPrice &&
+                msg.QuantityInStock == product.QuantityInStock
+            )), Times.Once);
+    }
+
+    #endregion
+
+    #region Repository Returns Null
+
+    [Fact]
+    public async Task AddProductAsync_ShouldReturnNull_WhenRepositoryReturnsNull()
+    {
+        var request = CreateRequest();
+
+        _mapperMock.Setup(x => x.Map<Product>(request))
+            .Returns(new Product());
+
+        _repoMock.Setup(x => x.AddProductAsync(It.IsAny<Product>()))
+            .ReturnsAsync((Product?)null);
+
+        var result = await _service.AddProductAsync(request);
+
+        result.Should().BeNull();
+
+        _publisherMock.Verify(x => x.PublishAsync(It.IsAny<string>(), It.IsAny<ProductAddMessage>()), Times.Never);
+    }
+
+    #endregion
+
+    #region Repository Exception
+
+    [Fact]
+    public async Task AddProductAsync_ShouldThrow_WhenRepositoryThrows()
+    {
+        var request = CreateRequest();
+
+        _mapperMock.Setup(x => x.Map<Product>(request))
+            .Returns(new Product());
+
+        _repoMock.Setup(x => x.AddProductAsync(It.IsAny<Product>()))
+            .ThrowsAsync(new Exception("DB error"));
+
+        Func<Task> act = async () => await _service.AddProductAsync(request);
+
+        await act.Should().ThrowAsync<Exception>()
+            .WithMessage("DB error");
+    }
+
+    #endregion
+
+    #region Publisher Exception
+
+    [Fact]
+    public async Task AddProductAsync_ShouldThrow_WhenPublisherFails()
+    {
+        var request = CreateRequest();
+
+        var product = new Product { ProductId = Guid.NewGuid() };
+
+        _mapperMock.Setup(x => x.Map<Product>(request)).Returns(product);
+        _repoMock.Setup(x => x.AddProductAsync(product)).ReturnsAsync(product);
+
+        _publisherMock.Setup(x => x.PublishAsync(It.IsAny<string>(), It.IsAny<ProductAddMessage>()))
+            .ThrowsAsync(new Exception("MQ failure"));
+
+        Func<Task> act = async () => await _service.AddProductAsync(request);
+
+        await act.Should().ThrowAsync<Exception>()
+            .WithMessage("MQ failure");
+    }
+
+    #endregion
+
+    #region Configuration Usage
+
+    [Fact]
+    public async Task AddProductAsync_ShouldUseRoutingKey_FromConfiguration()
+    {
+        var request = CreateRequest();
+        var product = new Product { ProductId = Guid.NewGuid() };
+
+        _mapperMock.Setup(x => x.Map<Product>(request)).Returns(product);
+        _repoMock.Setup(x => x.AddProductAsync(product)).ReturnsAsync(product);
+
+        await _service.AddProductAsync(request);
+
+        _publisherMock.Verify(x => x.PublishAsync(
+            RoutingKey,
+            It.IsAny<ProductAddMessage>()), Times.Once);
+    }
+
+    #endregion
+
+    #region Helpers
+
+    private static ProductAddRequest CreateRequest()
+    {
+        return new ProductAddRequest
+        {
             ProductName = "Test Product",
             UnitPrice = 100,
             QuantityInStock = 10
         };
-
-        var expectedResponse = new ProductResponse
-        {
-            ProductId = addedProduct.ProductId,
-            ProductName = addedProduct.ProductName,
-            UnitPrice = addedProduct.UnitPrice,
-            QuantityInStock = addedProduct.QuantityInStock
-        };
-
-        _mapperMock
-            .Setup(m => m.Map<Product>(request))
-            .Returns(mappedProduct);
-
-        _productsRepositoryMock
-            .Setup(r => r.AddProduct(mappedProduct))
-            .ReturnsAsync(addedProduct);
-
-        _mapperMock
-            .Setup(m => m.Map<ProductResponse>(addedProduct))
-            .Returns(expectedResponse);
-
-        // Act
-        var result = await _productAdderService.AddProduct(request);
-
-        // Assert
-        Assert.NotNull(result);
-        Assert.Equal(expectedResponse.ProductId, result!.ProductId);
-        Assert.Equal(expectedResponse.ProductName, result.ProductName);
-
-        _rabbitMQPublisherMock.Verify(
-            p => p.Publish(
-                "products.add",
-                It.Is<ProductAddMessage>(m =>
-                    m.ProductId == addedProduct.ProductId &&
-                    m.ProductName == addedProduct.ProductName &&
-                    m.UnitPrice == addedProduct.UnitPrice &&
-                    m.QuantityInStock == addedProduct.QuantityInStock
-                )
-            ),
-            Times.Once
-        );
     }
+
+    #endregion
 }

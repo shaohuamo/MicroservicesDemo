@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" Sdk="Microsoft.Docker.Sdk">
+  <PropertyGroup Label="Globals">
+    <ProjectVersion>2.1</ProjectVersion>
+    <DockerTargetOS>Linux</DockerTargetOS>
+    <DockerPublishLocally>False</DockerPublishLocally>
+    <ProjectGuid>81dded9d-158b-e303-5f62-77a2896d2a5a</ProjectGuid>
+    <DockerLaunchAction>LaunchBrowser</DockerLaunchAction>
+    <DockerServiceUrl>{Scheme}://localhost:{ServicePort}</DockerServiceUrl>
+    <DockerServiceName>productsmicroservice.api</DockerServiceName>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="configs\alertmanager.yml" />
+    <None Include="configs\grafana\dashboards\ASP.NET.json" />
+    <None Include="configs\grafana\dashboards\dashboard.yml" />
+    <None Include="configs\grafana\dashboards\Logs.json" />
+    <None Include="configs\grafana\dashboards\PostgreSQL.json" />
+    <None Include="configs\grafana\dashboards\RabbitMQ.json" />
+    <None Include="configs\grafana\dashboards\Redis.json" />
+    <None Include="configs\grafana\datasource.yml" />
+    <None Include="configs\otel-collector-config.yml" />
+    <None Include="configs\postgres-exporter\queries.yaml" />
+    <None Include="configs\postgres\conf\postgresql.conf" />
+    <None Include="configs\postgres\init\sql1.sql" />
+    <None Include="configs\postgres\init\sql2.sql" />
+    <None Include="configs\postgres\init\sql3.sql" />
+    <None Include="configs\prometheus\prometheus.yml" />
+    <None Include="configs\prometheus\rules\prometheus-alert.rules.yml" />
+    <None Include="configs\prometheus\rules\rabbitmq-alert-rules.yml" />
+    <None Include="configs\promtail\config.yml" />
+    <None Include="configs\rabbitmq\enabled_plugins" />
+    <None Include="docker-compose.override.yml">
+      <DependentUpon>docker-compose.yml</DependentUpon>
+    </None>
+    <None Include="docker-compose.yml" />
+    <None Include=".dockerignore" />
+  </ItemGroup>
+</Project>

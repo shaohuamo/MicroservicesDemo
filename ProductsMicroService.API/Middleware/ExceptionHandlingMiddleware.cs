@@ -1,4 +1,6 @@
-﻿namespace ProductsMicroService.API.Middleware
+﻿using System.Diagnostics;
+
+namespace ProductsMicroService.API.Middleware
 {
     /// <summary>
     /// Custom Exception Handle Middleware
@@ -32,20 +34,22 @@
             }
             catch (Exception ex)
             {
-                if (ex.InnerException != null)
-                {
-                    _logger.LogError("{ExceptionType} {ExceptionMessage}",
-                        ex.InnerException.GetType().ToString(), ex.InnerException.Message);
-                }
-                else
-                {
-                    _logger.LogError("{ExceptionType} {ExceptionMessage}",
-                        ex.GetType().ToString(), ex.Message);
-                }
+                _logger.LogError(ex, "An unhandled exception occurred: {Message}", ex.Message);
 
-                httpContext.Response.StatusCode = 500;
-                await httpContext.Response.WriteAsJsonAsync(
-                    new { ex.Message, Type = ex.GetType().ToString() });
+                var activity = Activity.Current;
+                activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+                activity?.AddException(ex);
+
+                httpContext.Response.StatusCode = StatusCodes.Status500InternalServerError;
+
+                var response = new
+                {
+                    Message = "Internal Server Error",
+                    Type = ex.GetType().Name,
+                    Detail = ex.InnerException?.Message ?? ex.Message
+                };
+
+                await httpContext.Response.WriteAsJsonAsync(response);
             }
         }
     }

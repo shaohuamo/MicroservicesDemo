@@ -1,4 +1,5 @@
 ﻿using AutoMapper;
+using Microsoft.Extensions.Logging;
 using ProductsMicroservice.Core.Domain.Entities;
 using ProductsMicroservice.Core.Domain.RepositoryContracts;
 using ProductsMicroservice.Core.DTO;
@@ -10,22 +11,30 @@ public class ProductsUpdaterService: IProductsUpdaterService
 {
     private readonly IMapper _mapper;
     private readonly IProductsRepository _productsRepository;
+    private readonly ILogger<ProductsUpdaterService> _logger;
 
-    public ProductsUpdaterService(IProductsRepository productsRepository, IMapper mapper)
+    public ProductsUpdaterService(IProductsRepository productsRepository, IMapper mapper, 
+        ILogger<ProductsUpdaterService> logger)
     {
         _productsRepository = productsRepository;
         _mapper = mapper;
+        _logger = logger;
     }
 
-    public async Task<ProductResponse?> UpdateProduct(ProductUpdateRequest productUpdateRequest)
+    public async Task<ProductResponse?> UpdateProductAsync(ProductUpdateRequest productUpdateRequest)
     {
-        //Map from ProductUpdateRequest to Product type
-        Product product = _mapper.Map<Product>(productUpdateRequest); 
+        ArgumentNullException.ThrowIfNull(productUpdateRequest);//defend against null input
 
-        Product? updatedProduct = await _productsRepository.UpdateProduct(product);
+        Product product = _mapper.Map<Product>(productUpdateRequest);
 
-        ProductResponse? updatedProductResponse = _mapper.Map<ProductResponse>(updatedProduct);
+        //update the product
+        Product? updatedProduct = await _productsRepository.UpdateProductAsync(product);
 
-        return updatedProductResponse;
+        if (updatedProduct == null)
+        {
+            return null;
+        }
+
+        return _mapper.Map<ProductResponse>(updatedProduct);
     }
 }

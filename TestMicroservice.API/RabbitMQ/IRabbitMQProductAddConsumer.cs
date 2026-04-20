@@ -2,6 +2,6 @@
 {
     public interface IRabbitMQProductAddConsumer:IAsyncDisposable
     {
-        Task Consume();
+        Task ConsumeAsync();
     }
 }

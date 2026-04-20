@@ -1,177 +1,119 @@
-﻿using System.Linq.Expressions;
-using System.Text.Json;
-using AutoMapper;
-using Microsoft.Extensions.Caching.Distributed;
+﻿using AutoMapper;
+using FluentAssertions;
 using Moq;
 using ProductsMicroservice.Core.Domain.Entities;
 using ProductsMicroservice.Core.Domain.RepositoryContracts;
 using ProductsMicroservice.Core.DTO;
 using ProductsMicroservice.Core.Services;
 
-namespace ProductsUnitTests;
+namespace ProductsMicroservice.Tests;
 
 public class ProductsGetterServiceTests
 {
-    private readonly Mock<IProductsRepository> _productsRepositoryMock;
-    private readonly Mock<IMapper> _mapperMock;
-    private readonly Mock<IDistributedCache> _distributedCacheMock;
+    private readonly Mock<IProductsRepository> _repoMock = new();
+    private readonly Mock<IMapper> _mapperMock = new();
 
     private readonly ProductsGetterService _service;
 
     public ProductsGetterServiceTests()
     {
-        _productsRepositoryMock = new Mock<IProductsRepository>();
-        _mapperMock = new Mock<IMapper>();
-        _distributedCacheMock = new Mock<IDistributedCache>();
-
         _service = new ProductsGetterService(
-            _productsRepositoryMock.Object,
-            _mapperMock.Object,
-            _distributedCacheMock.Object
+            _repoMock.Object,
+            _mapperMock.Object
         );
     }
 
+    #region GetProductsAsync
+
     [Fact]
-    public async Task GetProducts_CacheHit_ReturnsProductsFromCache()
+    public async Task GetProductsAsync_ShouldReturnMappedProducts()
     {
-        // Arrange
-        var cachedProducts = new List<ProductResponse?>
+        var products = new List<Product>
         {
-            new ProductResponse
-            {
-                ProductId = Guid.NewGuid(),
-                ProductName = "Cached Product"
-            }
+            new Product(),
+            new Product()
         };
 
-        byte[] cachedBytes = System.Text.Encoding.UTF8.GetBytes(
-            JsonSerializer.Serialize(cachedProducts)
-        );
+        var mapped = new List<ProductResponse>
+        {
+            new ProductResponse(),
+            new ProductResponse()
+        };
 
-        _distributedCacheMock
-            .Setup(c => c.GetAsync("all-products", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(cachedBytes);
+        _repoMock.Setup(x => x.GetProductsAsync())
+            .ReturnsAsync(products);
 
-        // Act
-        var result = await _service.GetProducts();
+        _mapperMock.Setup(x => x.Map<IEnumerable<ProductResponse>>(products))
+            .Returns(mapped);
 
-        // Assert
-        Assert.Single(result);
-        Assert.Equal("Cached Product", result.First()!.ProductName);
+        var result = await _service.GetProductsAsync();
 
-        _productsRepositoryMock.Verify(
-            r => r.GetProducts(),
-            Times.Never
-        );
+        result.Should().BeEquivalentTo(mapped);
+
+        _repoMock.Verify(x => x.GetProductsAsync(), Times.Once);
+        _mapperMock.Verify(x => x.Map<IEnumerable<ProductResponse>>(products), Times.Once);
     }
 
+    #endregion
+
+    #region GetProductByProductIdAsync - Found
 
     [Fact]
-    public async Task GetProducts_CacheMiss_FetchesFromRepositoryAndStoresInCache()
+    public async Task GetProductByProductIdAsync_ShouldReturnMappedProduct_WhenFound()
     {
-        // Arrange
-        _distributedCacheMock
-            .Setup(c => c.GetAsync("all-products", It.IsAny<CancellationToken>()))
-            .ReturnsAsync((byte[]?)null);
+        var productId = Guid.NewGuid();
 
-        var productsFromDb = new List<Product?>
-        {
-            new Product
-            {
-                ProductId = Guid.NewGuid(),
-                ProductName = "DB Product"
-            }
-        };
+        var product = new Product { ProductId = productId };
+        var mapped = new ProductResponse();
 
-        var mappedResponses = new List<ProductResponse?>
-        {
-            new ProductResponse
-            {
-                ProductId = productsFromDb[0]!.ProductId,
-                ProductName = "DB Product"
-            }
-        };
-
-        _productsRepositoryMock
-            .Setup(r => r.GetProducts())
-            .ReturnsAsync(productsFromDb);
-
-        _mapperMock
-            .Setup(m => m.Map<IEnumerable<ProductResponse>>(productsFromDb))
-            .Returns(mappedResponses);
-
-        // Act
-        var result = await _service.GetProducts();
-
-        // Assert
-        Assert.Single(result);
-        Assert.Equal("DB Product", result.First()!.ProductName);
-
-        _distributedCacheMock.Verify(
-            c => c.SetAsync(
-                "all-products",
-                It.IsAny<byte[]>(),
-                It.IsAny<DistributedCacheEntryOptions>(),
-                It.IsAny<CancellationToken>()
-            ),
-            Times.Once
-        );
-    }
-
-
-    [Fact]
-    public async Task GetProductByCondition_ProductExists_ReturnsMappedResponse()
-    {
-        // Arrange
-        Expression<Func<Product, bool>> condition = p => p.ProductName == "Test";
-
-        var product = new Product
-        {
-            ProductId = Guid.NewGuid(),
-            ProductName = "Test"
-        };
-
-        var response = new ProductResponse
-        {
-            ProductId = product.ProductId,
-            ProductName = product.ProductName
-        };
-
-        _productsRepositoryMock
-            .Setup(r => r.GetProductByCondition(condition))
+        _repoMock.Setup(x => x.GetProductByProductIdAsync(productId))
             .ReturnsAsync(product);
 
-        _mapperMock
-            .Setup(m => m.Map<ProductResponse>(product))
-            .Returns(response);
+        _mapperMock.Setup(x => x.Map<ProductResponse>(product))
+            .Returns(mapped);
 
-        // Act
-        var result = await _service.GetProductByCondition(condition);
+        var result = await _service.GetProductByProductIdAsync(productId);
 
-        // Assert
-        Assert.NotNull(result);
-        Assert.Equal("Test", result!.ProductName);
+        result.Should().Be(mapped);
+
+        _repoMock.Verify(x => x.GetProductByProductIdAsync(productId), Times.Once);
+        _mapperMock.Verify(x => x.Map<ProductResponse>(product), Times.Once);
     }
+
+    #endregion
+
+    #region GetProductByProductIdAsync - Not Found
 
     [Fact]
-    public async Task GetProductByCondition_ProductDoesNotExist_ReturnsNull()
+    public async Task GetProductByProductIdAsync_ShouldReturnNull_WhenNotFound()
     {
-        // Arrange
-        Expression<Func<Product, bool>> condition = p => p.ProductName == "Missing";
+        var productId = Guid.NewGuid();
 
-        _productsRepositoryMock
-            .Setup(r => r.GetProductByCondition(condition))
+        _repoMock.Setup(x => x.GetProductByProductIdAsync(productId))
             .ReturnsAsync((Product?)null);
 
-        // Act
-        var result = await _service.GetProductByCondition(condition);
+        var result = await _service.GetProductByProductIdAsync(productId);
 
-        // Assert
-        Assert.Null(result);
+        result.Should().BeNull();
 
-        _mapperMock.Verify(
-            m => m.Map<ProductResponse>(It.IsAny<Product>()),
-            Times.Never
-        );
+        _mapperMock.Verify(x => x.Map<ProductResponse>(It.IsAny<Product>()), Times.Never);
     }
+
+    #endregion
+
+    #region Repository Exception
+
+    [Fact]
+    public async Task GetProductsAsync_ShouldThrow_WhenRepositoryThrows()
+    {
+        _repoMock.Setup(x => x.GetProductsAsync())
+            .ThrowsAsync(new Exception("DB error"));
+
+        Func<Task> act = async () => await _service.GetProductsAsync();
+
+        await act.Should().ThrowAsync<Exception>()
+            .WithMessage("DB error");
+    }
+
+    #endregion
 }

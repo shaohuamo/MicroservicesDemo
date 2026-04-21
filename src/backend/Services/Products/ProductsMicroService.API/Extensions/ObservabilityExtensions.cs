@@ -45,7 +45,12 @@ namespace ProductsMicroService.API.Extensions
                     })
                     .AddNpgsql()
                     .AddAspNetCoreInstrumentation()
-                    .AddHttpClientInstrumentation()
+                    .AddHttpClientInstrumentation(options =>
+                    {
+                        options.FilterHttpRequestMessage = (req) =>
+                            req.RequestUri is null ||
+                            !req.RequestUri.Host.Contains("consul", StringComparison.OrdinalIgnoreCase);
+                    })
                     .AddOtlpExporter())
 
                 //Metric

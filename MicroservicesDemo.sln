@@ -25,6 +25,17 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "frontend", "frontend", "{A100000B-0000-0000-0000-00000000000B}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "admin-web", "admin-web", "{A100000C-0000-0000-0000-00000000000C}"
+	ProjectSection(SolutionItems) = preProject
+		src\frontend\admin-web\AGENTS.md = src\frontend\admin-web\AGENTS.md
+		src\frontend\admin-web\Dockerfile = src\frontend\admin-web\Dockerfile
+		src\frontend\admin-web\eslint.config.mjs = src\frontend\admin-web\eslint.config.mjs
+		src\frontend\admin-web\next.config.ts = src\frontend\admin-web\next.config.ts
+		src\frontend\admin-web\next-env.d.ts = src\frontend\admin-web\next-env.d.ts
+		src\frontend\admin-web\package.json = src\frontend\admin-web\package.json
+		src\frontend\admin-web\postcss.config.mjs = src\frontend\admin-web\postcss.config.mjs
+		src\frontend\admin-web\tsconfig.json = src\frontend\admin-web\tsconfig.json
+		src\frontend\admin-web\vitest.config.ts = src\frontend\admin-web\vitest.config.ts
+	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{A1000008-0000-0000-0000-000000000008}"
 EndProject
@@ -108,6 +119,92 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "rabbitmq", "rabbitmq", "{A1
 		configs\rabbitmq\enabled_plugins = configs\rabbitmq\enabled_plugins
 	EndProjectSection
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{A1000030-0000-0000-0000-000000000030}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "app", "app", "{A1000031-0000-0000-0000-000000000031}"
+	ProjectSection(SolutionItems) = preProject
+		src\frontend\admin-web\src\app\error.tsx = src\frontend\admin-web\src\app\error.tsx
+		src\frontend\admin-web\src\app\global-error.tsx = src\frontend\admin-web\src\app\global-error.tsx
+		src\frontend\admin-web\src\app\globals.css = src\frontend\admin-web\src\app\globals.css
+		src\frontend\admin-web\src\app\layout.tsx = src\frontend\admin-web\src\app\layout.tsx
+		src\frontend\admin-web\src\app\page.tsx = src\frontend\admin-web\src\app\page.tsx
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "health", "health", "{A1000032-0000-0000-0000-000000000032}"
+	ProjectSection(SolutionItems) = preProject
+		src\frontend\admin-web\src\app\health\page.tsx = src\frontend\admin-web\src\app\health\page.tsx
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "products", "products", "{A1000033-0000-0000-0000-000000000033}"
+	ProjectSection(SolutionItems) = preProject
+		src\frontend\admin-web\src\app\products\page.tsx = src\frontend\admin-web\src\app\products\page.tsx
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "components", "components", "{A1000034-0000-0000-0000-000000000034}"
+	ProjectSection(SolutionItems) = preProject
+		src\frontend\admin-web\src\components\otel-initializer.tsx = src\frontend\admin-web\src\components\otel-initializer.tsx
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "layout", "layout", "{A1000035-0000-0000-0000-000000000035}"
+	ProjectSection(SolutionItems) = preProject
+		src\frontend\admin-web\src\components\layout\sidebar.tsx = src\frontend\admin-web\src\components\layout\sidebar.tsx
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "products", "products", "{A1000036-0000-0000-0000-000000000036}"
+	ProjectSection(SolutionItems) = preProject
+		src\frontend\admin-web\src\components\products\delete-confirm-dialog.tsx = src\frontend\admin-web\src\components\products\delete-confirm-dialog.tsx
+		src\frontend\admin-web\src\components\products\product-form-dialog.tsx = src\frontend\admin-web\src\components\products\product-form-dialog.tsx
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "hooks", "hooks", "{A1000037-0000-0000-0000-000000000037}"
+	ProjectSection(SolutionItems) = preProject
+		src\frontend\admin-web\src\hooks\use-health.ts = src\frontend\admin-web\src\hooks\use-health.ts
+		src\frontend\admin-web\src\hooks\use-products.ts = src\frontend\admin-web\src\hooks\use-products.ts
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "lib", "lib", "{A1000038-0000-0000-0000-000000000038}"
+	ProjectSection(SolutionItems) = preProject
+		src\frontend\admin-web\src\lib\otel.ts = src\frontend\admin-web\src\lib\otel.ts
+		src\frontend\admin-web\src\lib\utils.ts = src\frontend\admin-web\src\lib\utils.ts
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "api", "api", "{A1000039-0000-0000-0000-000000000039}"
+	ProjectSection(SolutionItems) = preProject
+		src\frontend\admin-web\src\lib\api\health.ts = src\frontend\admin-web\src\lib\api\health.ts
+		src\frontend\admin-web\src\lib\api\http-client.ts = src\frontend\admin-web\src\lib\api\http-client.ts
+		src\frontend\admin-web\src\lib\api\products.ts = src\frontend\admin-web\src\lib\api\products.ts
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "providers", "providers", "{A100003A-0000-0000-0000-00000000003A}"
+	ProjectSection(SolutionItems) = preProject
+		src\frontend\admin-web\src\providers\query-provider.tsx = src\frontend\admin-web\src\providers\query-provider.tsx
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "types", "types", "{A100003B-0000-0000-0000-00000000003B}"
+	ProjectSection(SolutionItems) = preProject
+		src\frontend\admin-web\src\types\product.ts = src\frontend\admin-web\src\types\product.ts
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "__tests__", "__tests__", "{A100003C-0000-0000-0000-00000000003C}"
+	ProjectSection(SolutionItems) = preProject
+		src\frontend\admin-web\src\__tests__\setup.ts = src\frontend\admin-web\src\__tests__\setup.ts
+		src\frontend\admin-web\src\__tests__\utils.test.ts = src\frontend\admin-web\src\__tests__\utils.test.ts
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "hooks", "hooks", "{A100003D-0000-0000-0000-00000000003D}"
+	ProjectSection(SolutionItems) = preProject
+		src\frontend\admin-web\src\__tests__\hooks\use-health.test.tsx = src\frontend\admin-web\src\__tests__\hooks\use-health.test.tsx
+		src\frontend\admin-web\src\__tests__\hooks\use-products.test.tsx = src\frontend\admin-web\src\__tests__\hooks\use-products.test.tsx
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "lib", "lib", "{A100003E-0000-0000-0000-00000000003E}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "api", "api", "{A100003F-0000-0000-0000-00000000003F}"
+	ProjectSection(SolutionItems) = preProject
+		src\frontend\admin-web\src\__tests__\lib\api\http-client.test.ts = src\frontend\admin-web\src\__tests__\lib\api\http-client.test.ts
+		src\frontend\admin-web\src\__tests__\lib\api\products.test.ts = src\frontend\admin-web\src\__tests__\lib\api\products.test.ts
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -179,6 +276,22 @@ Global
 		{A1000027-0000-0000-0000-000000000027} = {A1000026-0000-0000-0000-000000000026}
 		{A1000028-0000-0000-0000-000000000028} = {A100000A-0000-0000-0000-00000000000A}
 		{A1000029-0000-0000-0000-000000000029} = {A100000A-0000-0000-0000-00000000000A}
+		{A1000030-0000-0000-0000-000000000030} = {A100000C-0000-0000-0000-00000000000C}
+		{A1000031-0000-0000-0000-000000000031} = {A1000030-0000-0000-0000-000000000030}
+		{A1000032-0000-0000-0000-000000000032} = {A1000031-0000-0000-0000-000000000031}
+		{A1000033-0000-0000-0000-000000000033} = {A1000031-0000-0000-0000-000000000031}
+		{A1000034-0000-0000-0000-000000000034} = {A1000030-0000-0000-0000-000000000030}
+		{A1000035-0000-0000-0000-000000000035} = {A1000034-0000-0000-0000-000000000034}
+		{A1000036-0000-0000-0000-000000000036} = {A1000034-0000-0000-0000-000000000034}
+		{A1000037-0000-0000-0000-000000000037} = {A1000030-0000-0000-0000-000000000030}
+		{A1000038-0000-0000-0000-000000000038} = {A1000030-0000-0000-0000-000000000030}
+		{A1000039-0000-0000-0000-000000000039} = {A1000038-0000-0000-0000-000000000038}
+		{A100003A-0000-0000-0000-00000000003A} = {A1000030-0000-0000-0000-000000000030}
+		{A100003B-0000-0000-0000-00000000003B} = {A1000030-0000-0000-0000-000000000030}
+		{A100003C-0000-0000-0000-00000000003C} = {A1000030-0000-0000-0000-000000000030}
+		{A100003D-0000-0000-0000-00000000003D} = {A100003C-0000-0000-0000-00000000003C}
+		{A100003E-0000-0000-0000-00000000003E} = {A100003C-0000-0000-0000-00000000003C}
+		{A100003F-0000-0000-0000-00000000003F} = {A100003E-0000-0000-0000-00000000003E}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {DD85AE07-7C76-4BDB-981B-290564C56E5F}

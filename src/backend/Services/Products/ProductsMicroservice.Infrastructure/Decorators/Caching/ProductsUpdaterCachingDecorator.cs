@@ -39,6 +39,7 @@ namespace ProductsMicroservice.Infrastructure.Decorators.Caching
             try
             {
                 await _cache.RemoveAsync(cacheKey);
+                await _cache.RemoveAsync(ProductCacheKeys.AllProductsKey);
             }
             catch (Exception ex)
             {
@@ -56,6 +57,7 @@ namespace ProductsMicroservice.Infrastructure.Decorators.Caching
                 try
                 {
                     await _cache.RemoveAsync(cacheKey);
+                    await _cache.RemoveAsync(ProductCacheKeys.AllProductsKey);
 
                     _logger.LogInformation("Cache invalidated successfully");
                     activity?.SetTag("cache.invalidated", true);
@@ -80,6 +82,7 @@ namespace ProductsMicroservice.Infrastructure.Decorators.Caching
                     {
                         await Task.Delay(_redisOptions.DelayedDeleteMs);
                         await scopedCache.RemoveAsync(cacheKey);
+                        await scopedCache.RemoveAsync(ProductCacheKeys.AllProductsKey);
                         scopedLogger.LogInformation("Delayed cache invalidation completed for {ProductId}", response.ProductId);
                     }
                     catch (Exception ex)

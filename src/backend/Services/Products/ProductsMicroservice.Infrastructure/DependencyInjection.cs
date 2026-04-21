@@ -31,6 +31,7 @@ namespace ProductsMicroservice.Infrastructure
             IConfiguration configuration)
         {
             //decorate service
+            services.Decorate<IProductsAdderService, ProductsAdderCachingDecorator>();
             services.Decorate<IProductsAdderService, ProductsAdderTelemetryDecorator>();
 
             services.Decorate<IProductsDeleterService, ProductsDeleterCachingDecorator>();

@@ -22,6 +22,7 @@ namespace ProductsMicroservice.Infrastructure.Decorators.Caching
         private readonly CacheOptions _cacheOptions;
         private readonly ILogger<ProductsGetterCachingDecorator> _logger;
         private static readonly SemaphoreSlim _localLock = new(1, 1);
+        private static readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web);
         private readonly IServiceScopeFactory _scopeFactory;
 
         public ProductsGetterCachingDecorator(
@@ -64,7 +65,7 @@ namespace ProductsMicroservice.Infrastructure.Decorators.Caching
                 activity?.SetTag("cache.hit_type", "data");
                 _logger.LogInformation("Cache Hit for ProductId: {ProductId}", productId);
 
-                return JsonSerializer.Deserialize<ProductResponse>(cachedData);
+                return JsonSerializer.Deserialize<ProductResponse>(cachedData, _jsonOptions);
             }
 
             // 030-000:cache miss
@@ -139,7 +140,7 @@ namespace ProductsMicroservice.Infrastructure.Decorators.Caching
         private async Task<IEnumerable<ProductResponse?>> HandleCacheHit(Activity? activity, string cachedProducts)
         {
             // 030-010:deserialize cached data and logical expire time
-            var productsFromCache = JsonSerializer.Deserialize<RedisDataWrapper<List<ProductResponse>>>(cachedProducts);
+            var productsFromCache = JsonSerializer.Deserialize<RedisDataWrapper<List<ProductResponse>>>(cachedProducts, _jsonOptions);
 
             if (productsFromCache?.Data == null)
             {
@@ -345,7 +346,7 @@ namespace ProductsMicroservice.Infrastructure.Decorators.Caching
                 var options = new DistributedCacheEntryOptions()
                     .SetAbsoluteExpiration(TimeSpan.FromHours(24));
 
-                string json = JsonSerializer.Serialize(wrapper);
+                string json = JsonSerializer.Serialize(wrapper, _jsonOptions);
 
                 // update cache
                 await _distributedCache.SetStringAsync(key, json, options);

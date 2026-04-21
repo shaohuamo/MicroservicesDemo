@@ -4,6 +4,7 @@ using ProductsMicroservice.Core;
 using ProductsMicroservice.Infrastructure;
 using ProductsMicroService.API.Extensions;
 using ProductsMicroService.API.Middleware;
+using Steeltoe.Discovery.Consul;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,6 +20,9 @@ builder.Services.AddControllers(options =>
     // allow action method names to end with "Async" without removing "Async" suffix in route template
     options.SuppressAsyncSuffixInActionNames = false;
 });
+
+//Register Consul service discovery
+builder.Services.AddConsulDiscoveryClient();
 
 //Add Swagger services
 if (builder.Environment.IsDevelopment())

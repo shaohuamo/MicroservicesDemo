@@ -45,6 +45,7 @@ namespace ProductsMicroservice.Infrastructure.Decorators.Caching
                 try
                 {
                     await _cache.RemoveAsync(cacheKey);
+                    await _cache.RemoveAsync(ProductCacheKeys.AllProductsKey);
                     activity?.SetTag("cache.invalidated", true);
                     _logger.LogInformation("Cache invalidated for ProductId: {ProductId}", productId);
                 }

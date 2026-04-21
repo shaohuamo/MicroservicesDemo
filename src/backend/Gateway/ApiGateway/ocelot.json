@@ -1,6 +1,77 @@
 {
   "Routes": [
     {
+      "UpstreamPathTemplate": "/gateway/products",
+      "DownstreamPathTemplate": "/api/products",
+
+      "UpstreamScheme": "http",
+      "DownstreamScheme": "http",
+
+      "UpstreamHttpMethod": [
+        "Get",
+        "Post",
+        "Put"
+      ],
+
+      "ServiceName": "productservice",
+      "LoadBalancerOptions": {
+        "Type": "RoundRobin"
+      }
+    },
+    {
+      "UpstreamPathTemplate": "/gateway/products/{everything}",
+      "DownstreamPathTemplate": "/api/products/{everything}",
+
+      "UpstreamScheme": "http",
+      "DownstreamScheme": "http",
+
+      "UpstreamHttpMethod": [
+        "Get",
+        "Delete"
+      ],
+
+      "ServiceName": "productservice",
+      "LoadBalancerOptions": {
+        "Type": "RoundRobin"
+      }
+    },
+    {
+      "UpstreamPathTemplate": "/gateway/consul/agent/services",
+      "DownstreamPathTemplate": "/v1/agent/services",
+
+      "UpstreamScheme": "http",
+      "DownstreamScheme": "http",
+
+      "UpstreamHttpMethod": [
+        "Get"
+      ],
+
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "consul",
+          "Port": 8500
+        }
+      ]
+    },
+    {
+      "UpstreamPathTemplate": "/gateway/consul/health/service/{serviceName}",
+      "DownstreamPathTemplate": "/v1/health/service/{serviceName}",
+
+      "UpstreamScheme": "http",
+      "DownstreamScheme": "http",
+
+      "UpstreamHttpMethod": [
+        "Get"
+      ],
+
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "consul",
+          "Port": 8500
+        }
+      ]
+    },
+    {
       "UpstreamPathTemplate": "/gateway/test",
       "DownstreamPathTemplate": "/api/test",
 

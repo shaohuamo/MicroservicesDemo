@@ -29,27 +29,28 @@ export function DeleteConfirmDialog({
   if (!open || !product) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6 sm:px-6">
       <div
-        className="fixed inset-0 bg-black/50"
+        className="dialog-backdrop fixed inset-0"
         onClick={() => onOpenChange(false)}
       />
-      <div className="relative bg-white dark:bg-gray-900 rounded-lg shadow-lg border p-6 w-full max-w-sm">
-        <h2 className="text-lg font-semibold mb-2">Delete Product</h2>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+      <div className="dialog-card relative w-full max-w-lg rounded-[2rem] p-6 sm:p-8">
+        <div className="kicker text-[var(--danger)]">Destructive Action</div>
+        <h2 className="font-display mt-3 text-3xl font-semibold text-[var(--text)]">Delete Product</h2>
+        <p className="mt-4 text-sm leading-7 text-[var(--muted)] sm:text-base">
           Are you sure you want to delete{" "}
           <strong>{product.productName}</strong>? This action cannot be undone.
         </p>
         {deleteMutation.isError && (
-          <p className="text-red-500 text-sm mb-3">
+          <p className="mt-5 rounded-2xl border border-[rgba(232,137,110,0.28)] bg-[var(--danger-soft)] px-4 py-3 text-sm text-[var(--danger)]">
             {deleteMutation.error?.message ?? "Failed to delete product. Please try again."}
           </p>
         )}
-        <div className="flex justify-end gap-2">
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            className="px-4 py-2 text-sm rounded-md border hover:bg-gray-100 dark:hover:bg-gray-800"
+            className="editorial-button-ghost"
           >
             Cancel
           </button>
@@ -57,7 +58,7 @@ export function DeleteConfirmDialog({
             type="button"
             onClick={handleDelete}
             disabled={deleteMutation.isPending}
-            className="px-4 py-2 text-sm rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+            className="editorial-button-danger"
           >
             {deleteMutation.isPending ? "Deleting..." : "Delete"}
           </button>

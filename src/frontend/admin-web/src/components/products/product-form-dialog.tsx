@@ -75,84 +75,92 @@ export function ProductFormDialog({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6 sm:px-6">
       <div
-        className="fixed inset-0 bg-black/50"
+        className="dialog-backdrop fixed inset-0"
         onClick={() => onOpenChange(false)}
       />
-      <div className="relative bg-white dark:bg-gray-900 rounded-lg shadow-lg border p-6 w-full max-w-md">
-        <h2 className="text-lg font-semibold mb-4">
-          {isEditing ? "Edit Product" : "Add Product"}
-        </h2>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">
+      <div className="dialog-card relative w-full max-w-2xl rounded-[2rem] p-6 sm:p-8">
+        <div className="flex flex-col gap-3 border-b border-[var(--border)] pb-5">
+          <div className="kicker">Product Editor</div>
+          <h2 className="font-display text-3xl font-semibold text-[var(--text)]">
+            {isEditing ? "Edit Product" : "Add Product"}
+          </h2>
+          <p className="text-sm leading-6 text-[var(--muted)] sm:text-base">
+            Adjust product identity, pricing, and stock counts from a single control surface.
+          </p>
+        </div>
+        <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-5">
+          <div className="grid gap-5 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label className="mb-2 block text-sm font-medium text-[var(--text)]">
               Product Name <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={productName}
-              onChange={(e) => setProductName(e.target.value)}
-              className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:border-gray-700"
-              placeholder="Enter product name"
-            />
-            {errors.productName && (
-              <p className="text-red-500 text-xs mt-1">{errors.productName}</p>
-            )}
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">
+              </label>
+              <input
+                type="text"
+                value={productName}
+                onChange={(e) => setProductName(e.target.value)}
+                className="editorial-field"
+                placeholder="Enter product name"
+              />
+              {errors.productName && (
+                <p className="mt-2 text-xs text-[var(--danger)]">{errors.productName}</p>
+              )}
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-[var(--text)]">
               Unit Price ($)
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              value={unitPrice}
-              onChange={(e) => setUnitPrice(e.target.value)}
-              className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:border-gray-700"
-              placeholder="0.00"
-            />
-            {errors.unitPrice && (
-              <p className="text-red-500 text-xs mt-1">{errors.unitPrice}</p>
-            )}
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={unitPrice}
+                onChange={(e) => setUnitPrice(e.target.value)}
+                className="editorial-field"
+                placeholder="0.00"
+              />
+              {errors.unitPrice && (
+                <p className="mt-2 text-xs text-[var(--danger)]">{errors.unitPrice}</p>
+              )}
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-[var(--text)]">
               Quantity In Stock
-            </label>
-            <input
-              type="number"
-              step="1"
-              min="0"
-              value={quantityInStock}
-              onChange={(e) => setQuantityInStock(e.target.value)}
-              className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:border-gray-700"
-              placeholder="0"
-            />
-            {errors.quantityInStock && (
-              <p className="text-red-500 text-xs mt-1">
-                {errors.quantityInStock}
-              </p>
-            )}
+              </label>
+              <input
+                type="number"
+                step="1"
+                min="0"
+                value={quantityInStock}
+                onChange={(e) => setQuantityInStock(e.target.value)}
+                className="editorial-field"
+                placeholder="0"
+              />
+              {errors.quantityInStock && (
+                <p className="mt-2 text-xs text-[var(--danger)]">
+                  {errors.quantityInStock}
+                </p>
+              )}
+            </div>
           </div>
           {(addMutation.isError || updateMutation.isError) && (
-            <p className="text-red-500 text-sm">
+            <p className="rounded-2xl border border-[rgba(232,137,110,0.28)] bg-[var(--danger-soft)] px-4 py-3 text-sm text-[var(--danger)]">
               {(addMutation.error || updateMutation.error)?.message ?? "Failed to save product. Please try again."}
             </p>
           )}
-          <div className="flex justify-end gap-2 mt-2">
+          <div className="mt-2 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <button
               type="button"
               onClick={() => onOpenChange(false)}
-              className="px-4 py-2 text-sm rounded-md border hover:bg-gray-100 dark:hover:bg-gray-800"
+              className="editorial-button-ghost"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isPending}
-              className="px-4 py-2 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              className="editorial-button"
             >
               {isPending ? "Saving..." : isEditing ? "Update" : "Add"}
             </button>

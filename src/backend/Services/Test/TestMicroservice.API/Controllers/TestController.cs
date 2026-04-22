@@ -9,11 +9,13 @@ namespace TestMicroservice.API.Controllers
     {
         private readonly ILogger<TestController> _logger;
         private readonly IConfiguration _configuration;
+        private readonly IWebHostEnvironment _env;
 
-        public TestController(IConfiguration configuration, ILogger<TestController> logger)
+        public TestController(IConfiguration configuration, ILogger<TestController> logger, IWebHostEnvironment env)
         {
             _configuration = configuration;
             _logger = logger;
+            _env = env;
         }
 
         [HttpGet]
@@ -25,6 +27,13 @@ namespace TestMicroservice.API.Controllers
         [HttpDelete("product/{productId}/related-info")]
         public async Task<ActionResult<bool>> DeleteProductRelatedInfoAsync(Guid productId)
         {
+            //if environment is production, return ok without performing deletion
+            if (_env.IsProduction())
+            {
+                _logger.LogInformation("Environment is production. Skipping deletion of product related info for product {ProductId}", productId);
+                return Ok(true);
+            }
+
             //mocking the deletion of product related info
             var success = await PerformDeletionAsync(productId);
 

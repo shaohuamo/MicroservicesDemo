@@ -30,7 +30,7 @@ services:
     volumes:
       - ./loki-data:/tmp/loki
     ports:
-      - "3200:3100"
+      - "13100:3100"
     networks:
       - app-network
   promtail:
@@ -170,7 +170,7 @@ services:
     container_name: productMicroservice-container
     hostname: productapi
     environment:
-     - ASPNETCORE_ENVIRONMENT=Development
+     - ASPNETCORE_ENVIRONMENT=Production
      - POSTGRES__HOST=postgres
      - POSTGRES__PORT=5432
      - POSTGRES__DATABASE=productsdatabase
@@ -198,11 +198,16 @@ services:
      - Redis__AbortOnConnectFail=false
      - Redis__DelayedDeleteMs=2000
      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-     - OTEL_RESOURCE_ATTRIBUTES=deployment.environment=development
+     - OTEL_RESOURCE_ATTRIBUTES=deployment.environment=production
      - TestMicroserviceName=testapi1
      - TestMicroservicePort=8080
      - CacheOptions__DefaultExpirationMinutes=120
      - CacheOptions__NegativeCacheExpirationMinutes=10
+     - Consul__Host=consul
+     - Consul__Port=8500
+     - Consul__Discovery__ServiceName=productservice
+     - Consul__Discovery__Hostname=productapi
+     - Consul__Discovery__Port=8080
     ports:
      - 8581:8080
     networks:
@@ -214,13 +219,15 @@ services:
        condition: service_started
       redis:
        condition: service_started
+      consul:
+       condition: service_healthy
   apigateway:
     image: lambdazb/apigateway:v1.0
     container_name: apiGateway-container
     hostname: apigateway
     environment:
     - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-    - OTEL_RESOURCE_ATTRIBUTES=service.name=apigateway,deployment.environment=development 
+    - OTEL_RESOURCE_ATTRIBUTES=service.name=apigateway,deployment.environment=production 
     ports:
      - 9080:8080
     networks:
@@ -230,11 +237,14 @@ services:
        condition: service_healthy
      test-microservice1:
        condition: service_started
+     productsmicroservice.api:
+       condition: service_started
   test-microservice1:
     image: lambdazb/testmicroservice:v1.0
     container_name: testMicroservice-container-1
     hostname: testapi1
     environment:
+     - ASPNETCORE_ENVIRONMENT=Production
      - App_Name=App_A
      - Consul__Host=consul
      - Consul__Port=8500
@@ -253,7 +263,7 @@ services:
      - RabbitMQ_Products_RoutingKey=products.add
      - RabbitMQ_Products_Queue=products.add.queue
      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-     - OTEL_RESOURCE_ATTRIBUTES=service.name=test.api,deployment.environment=development 
+     - OTEL_RESOURCE_ATTRIBUTES=service.name=test.api,deployment.environment=production 
     ports:
      - 8580:8080
     networks:
@@ -284,6 +294,19 @@ services:
      - 8500:8500
     networks:
      - app-network
+  admin-web:
+    image: lambdazb/admin-web:v1.0
+    container_name: admin-web-container
+    hostname: admin-web
+    ports:
+      - 3000:3000
+    networks:
+      - app-network
+    depends_on:
+      apigateway:
+        condition: service_started
+      otel-collector:
+        condition: service_started
 networks:
   app-network:
     driver: bridge

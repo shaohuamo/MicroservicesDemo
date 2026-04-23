@@ -19,6 +19,12 @@ services:
     image: jaegertracing/all-in-one:1.54
     container_name: jaeger-container
     hostname: jaeger
+    environment:
+      - METRICS_STORAGE_TYPE=prometheus
+      - PROMETHEUS_SERVER_URL=http://prometheus:9090
+      - PROMETHEUS_QUERY_SUPPORT_SPANMETRICS_CONNECTOR=true
+      - PROMETHEUS_QUERY_NORMALIZE_CALLS=true
+      - PROMETHEUS_QUERY_NORMALIZE_DURATION=true
     ports:
       - "16686:16686"   # UI
     networks:
@@ -28,7 +34,7 @@ services:
     container_name: loki-container
     hostname: loki
     volumes:
-      - ./loki-data:/tmp/loki
+      - loki_storage:/loki
     ports:
       - "13100:3100"
     networks:
@@ -101,6 +107,12 @@ services:
     command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru
     ports:
      - 6379:6379
+    healthcheck:
+     test: ["CMD", "redis-cli", "ping"]
+     interval: 10s
+     timeout: 5s
+     retries: 5
+     start_period: 10s
     networks:
      - app-network
   redis-exporter:
@@ -122,6 +134,7 @@ services:
     environment:
      - RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS=-rabbitmq_prometheus return_per_object_metrics true
     volumes:
+     - rabbitmq_data:/var/lib/rabbitmq
      - ../../configs/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins #enable prometheus plugin(expose metric endpoint)
     ports:
      - 5672:5672
@@ -148,6 +161,12 @@ services:
     - ../../configs/postgres/init:/docker-entrypoint-initdb.d
     - ../../configs/postgres/conf/postgresql.conf:/etc/postgresql/postgresql.conf
    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+   healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U postgres"]
+    interval: 10s
+    timeout: 5s
+    retries: 10
+    start_period: 10s
    networks:
     - app-network
   postgres-exporter:
@@ -216,9 +235,9 @@ services:
       rabbitmq:
        condition: service_healthy
       postgres: #service name
-       condition: service_started
+       condition: service_healthy
       redis:
-       condition: service_started
+       condition: service_healthy
       consul:
        condition: service_healthy
   apigateway:
@@ -311,4 +330,6 @@ networks:
   app-network:
     driver: bridge
 volumes:
+  rabbitmq_data:
   prometheus_data:
+  loki_storage:

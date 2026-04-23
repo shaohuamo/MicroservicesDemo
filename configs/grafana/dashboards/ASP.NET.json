@@ -94,7 +94,7 @@
                 "uid": "a2c150c3-b92f-40fb-aee3-d4f871bdcb92"
               },
               "editorMode": "code",
-              "expr": "product_api_start_time_seconds{job=\"$job\"}* 1000",
+              "expr": "product_api_start_time_seconds{job=\"$job\",instance=\"$instance\"}* 1000",
               "instant": false,
               "legendFormat": "__auto",
               "range": true,

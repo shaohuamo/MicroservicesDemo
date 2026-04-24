@@ -188,7 +188,7 @@ docker compose -f docker/deploy/docker-compose.yml up -d
 | Prometheus | http://localhost:9090 |
 | Alertmanager | http://localhost:9093 |
 | Consul UI | http://localhost:8500 |
-| RabbitMQ Management(账户：guest 密码：guest) | http://localhost:15672 |
+| RabbitMQ Management(账户/密码：guest) | http://localhost:15672 |
 
 **📄 推荐演示顺序**：
 

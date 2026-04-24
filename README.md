@@ -182,11 +182,9 @@ docker compose -f docker/deploy/docker-compose.yml up -d
 | 服务 | 地址 |
 | --- | --- |
 | Admin Web | http://localhost:3000 |
-| API Gateway | http://localhost:9080 |
 | Jaeger UI | http://localhost:16686 |
 | Grafana | http://localhost:13000 |
 | Prometheus | http://localhost:9090 |
-| Alertmanager | http://localhost:9093 |
 | Consul UI | http://localhost:8500 |
 | RabbitMQ Management(账户/密码：guest) | http://localhost:15672 |
 
@@ -251,7 +249,7 @@ dotnet test tests/ProductsServiceUnitTests/ProductsServiceUnitTests.csproj
 
 ## English Version
 
-<details open>
+<details>
 <summary><strong>Click to expand / collapse English content</strong></summary>
 
 ### ✨ Key Highlights
@@ -353,11 +351,9 @@ docker compose -f docker/deploy/docker-compose.yml up -d
 | Service | URL |
 | --- | --- |
 | Admin Web | http://localhost:3000 |
-| API Gateway | http://localhost:9080 |
 | Jaeger UI | http://localhost:16686 |
 | Grafana | http://localhost:13000 |
 | Prometheus | http://localhost:9090 |
-| Alertmanager | http://localhost:9093 |
 | Consul UI | http://localhost:8500 |
 | RabbitMQ Management(Account/Password:guest) | http://localhost:15672 |
 
@@ -450,13 +446,37 @@ These screenshots are intended as evidence points for routing, discovery, tracin
 
 **看点：** Jaeger 截图证明请求确实穿过了网关、API、Redis 以及 RabbitMQ 相关 Span；Grafana 与日志跳转链路则进一步证明指标和日志可以围绕同一个分布式 Trace 上下文联动排查。
 
+
 ### 📊 Jaeger Trace - Post Flow
 
-![JaegerTrace1](images/JaegerTrace1.png)
+**Evidence to look for:** As highlighted in red in the screenshot, Jaeger automatically captures and visualizes the message processing flow in the Test.Api service for the `products.add.queue` queue. Even without explicit log statements, the `Simulated Delay: 3s` span demonstrates the tracing system's precision in detecting tail latency patterns.
+
+**看点：** 如图中红标所示，系统通过 Jaeger 自动捕获并可视化了 Test.Api 服务中 `products.add.queue` 消息的处理过程。即使是在没有任何显式日志打印的情况下，我们通过 Simulated Delay: 3s 验证了链路追踪对长尾延迟（Tail Latency）的精准感知能力。
+
+![JaegerTracePostFlow](images/JaegerTracePostFlow.png)
 
 ### 📊 Jaeger Trace - Get Flow
 
-![JaegerTrace2](images/JaegerTrace2.png)
+![JaegerTraceGetFlow](images/JaegerTraceGetFlow.png)
+
+### 📊 Jaeger Trace - Delete Flow
+
+![JaegerTraceDeleteFlow](images/JaegerTraceDeleteFlow.png)
+
+### 🔗 Jaeger Trace to Log Correlation
+
+**Evidence to look for:** This screenshot shows how a Jaeger trace can be correlated directly to a log entry, enabling root cause analysis by linking distributed traces with application logs.
+
+**看点：** 该截图展示了如何从 Jaeger Trace 直接跳转到日志条目，实现分布式链路与应用日志的联动排查。
+
+![JaegerTraceToLog](images/JaegerTraceToLog.png)
+
+### 🔄 Log to Jaeger Trace
+
+**Evidence to look for:** This screenshot demonstrates the reverse direction — from a log entry, you can jump directly to the corresponding Jaeger trace using the TraceID, enabling quick context switching during troubleshooting.
+
+**看点：** 该截图展示了反向的关联流程——从日志条目出发，通过 TraceID 直接跳转到对应的 Jaeger Trace，让排查问题时快速切换上下文。
+![LogToJaegerTrace](images/LogToJaegerTrace.png)
 
 ### 📈 Jaeger Monitor
 
@@ -466,10 +486,6 @@ These screenshots are intended as evidence points for routing, discovery, tracin
 
 ![GrafanaOTELMetrics](images/GrafanaOTELMetrics.png)
 
-### 🔗 Log to Jaeger Trace
-
-![LogToJaegerTrace](images/LogToJaegerTrace.png)
-
 </details>
 
 <details open>
@@ -477,7 +493,7 @@ These screenshots are intended as evidence points for routing, discovery, tracin
 
 **Evidence to look for:** The RabbitMQ exchange and queue screenshots verify that product-related events are routed and buffered asynchronously, and the Slack alert screenshot shows that infrastructure signals can be turned into actionable notifications through Alertmanager.
 
-**看点：** RabbitMQ 的 Exchange 与 Queue 截图证明产品相关事件已经被异步路由和缓冲，而 Slack 告警截图则说明基础设施信号可以通过 Alertmanager 转化为可执行通知。
+**看点：** RabbitMQ 的 Exchange 与 Queue 截图证明Product相关事件已经被异步路由和缓冲，而 Slack 告警截图则说明基础设施信号可以通过 Alertmanager 转化为可执行通知。
 
 ### 🔄 RabbitMQ Exchange
 

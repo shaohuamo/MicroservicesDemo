@@ -75,6 +75,8 @@
   - [Architecture & Service Discovery](#architecture-and-service-discovery--架构与服务发现)
   - [Tracing, Metrics & Logs](#tracing-metrics-and-logs--链路追踪指标与日志)
   - [Messaging & Alerting](#messaging-and-alerting--消息队列与告警)
+- 🤝 [Contributing](CONTRIBUTING.md)
+- 📄 [License](LICENSE)
 
 ---
 
@@ -509,5 +511,13 @@ These screenshots are intended as evidence points for routing, discovery, tracin
 
 </details>
 
+---
 
+## 🤝 Contributing
+
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for branch strategy, commit message format, code quality requirements, and PR guidelines before submitting.
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).
 

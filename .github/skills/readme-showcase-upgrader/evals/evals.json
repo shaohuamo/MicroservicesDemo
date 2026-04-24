@@ -1,0 +1,41 @@
+{
+  "skill_name": "readme-showcase-upgrader",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Research top GitHub repositories related to .NET microservices, observability, and distributed systems. Read their README.md files, extract the strongest layout and badge patterns, and rewrite my local README.md so it looks more polished and portfolio-ready without exaggerating anything.",
+      "expected_output": "The local README is rewritten with stronger structure, cleaner badge organization, and more professional project presentation grounded in the actual repository contents.",
+      "files": [],
+      "expectations": [
+        "The run produces a rewritten README.md file.",
+        "The rewritten README includes a recognizable badge block near the top of the document.",
+        "The rewritten README includes a tech stack section or equivalent grouped technology presentation.",
+        "The run produces a sources.json file listing the exemplar repositories or README files consulted."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Use GitHub MCP search_repositories and get_file_contents to benchmark my repository README against strong public examples. Then improve the screenshots, architecture section, and quick-start flow in my local README.md. Keep the tone technical and evidence-based.",
+      "expected_output": "The rewritten README improves architecture and screenshot presentation, keeps a concise engineering tone, and makes onboarding easier to scan.",
+      "files": [],
+      "expectations": [
+        "The run produces a rewritten README.md file.",
+        "The rewritten README includes an architecture section with at least one repository image reference.",
+        "The rewritten README includes a quick-start section with runnable setup commands.",
+        "The run produces a sources.json file listing the exemplar repositories or README files consulted."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "My repo already has Jaeger and Grafana screenshots. Find a few strong GitHub repos with polished README storytelling, study how they present architecture and proof points, and upgrade my README.md with better image embedding, tech stack grouping, and an observability or performance proof section that stays factual.",
+      "expected_output": "The README uses clearer image markup, better section organization, and a factual proof-oriented observability section without inventing metrics.",
+      "files": [],
+      "expectations": [
+        "The run produces a rewritten README.md file.",
+        "The rewritten README includes an observability or performance proof section that references Jaeger, Grafana, or similar local evidence.",
+        "The rewritten README includes image embedding for observability assets using repository image paths.",
+        "The run produces a sources.json file listing the exemplar repositories or README files consulted."
+      ]
+    }
+  ]
+}

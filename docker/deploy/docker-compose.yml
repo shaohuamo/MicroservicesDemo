@@ -318,7 +318,7 @@ services:
     container_name: admin-web-container
     hostname: admin-web
     ports:
-      - 3000:3000
+      - 3200:3000
     networks:
       - app-network
     depends_on:

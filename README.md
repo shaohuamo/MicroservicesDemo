@@ -68,6 +68,15 @@
 
 ---
 
+## 🔄 CI/CD Status / 持续集成状态
+
+[![CI - Products Microservice](https://github.com/shaohuamo/MicroservicesDemo/actions/workflows/ci-products.yml/badge.svg)](https://github.com/shaohuamo/MicroservicesDemo/actions/workflows/ci-products.yml)
+[![CI - API Gateway](https://github.com/shaohuamo/MicroservicesDemo/actions/workflows/ci-gateway.yml/badge.svg)](https://github.com/shaohuamo/MicroservicesDemo/actions/workflows/ci-gateway.yml)
+[![CI - Test Microservice](https://github.com/shaohuamo/MicroservicesDemo/actions/workflows/ci-test-microservice.yml/badge.svg)](https://github.com/shaohuamo/MicroservicesDemo/actions/workflows/ci-test-microservice.yml)
+[![CI - Frontend](https://github.com/shaohuamo/MicroservicesDemo/actions/workflows/ci-frontend.yml/badge.svg)](https://github.com/shaohuamo/MicroservicesDemo/actions/workflows/ci-frontend.yml)
+
+---
+
 ## 📖 Quick Navigation / 快速导航
 
 - 🌐 [中文版本](#中文版本) | [English Version](#english-version)
@@ -255,6 +264,7 @@ dotnet test tests/ProductsServiceUnitTests/ProductsServiceUnitTests.csproj
 - 引入 Saga 模式处理跨服务分布式一致性问题
 - 多实例部署配合 Consul 负载均衡，验证横向扩展能力
 - 接入 Vault 或 Kubernetes Secret 管理生产级配置
+- 建立 CD Pipeline，支持自动化部署至 Kubernetes 集群，集成 GitOps 流程（ArgoCD），实现声明式持续交付
 
 </details>
 
@@ -435,6 +445,7 @@ Covers the four core Products service behaviors (add, get, update, delete) using
 - Introduce the Saga pattern for distributed transaction consistency
 - Demonstrate horizontal scaling with multi-instance deployment and Consul load balancing
 - Integrate Vault or Kubernetes Secrets for production-grade configuration management
+- Build a CD pipeline with automated Kubernetes deployment and GitOps integration (ArgoCD) for declarative continuous delivery
 
 </details>
 

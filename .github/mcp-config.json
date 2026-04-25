@@ -11,33 +11,6 @@
       "command": "npx",
       "args": ["-y", "@upstash/context7-mcp"],
       "tools": ["*"]
-    },
-	"book-lookup": {
-      "type": "local",
-	  "command": "uv",
-	  "args": [
-			"--directory",
-			"H:/source/Practice/Test/2026/20260412/CopilotCliPractice/copilot-cli-for-beginners/book-lookup-mcp-server",
-			"run",
-			"python",
-			"server.py"],
-	  "tools": ["*"]
-	},
-	"dockerhub": {
-      "command": "docker",
-      "args": [
-        "run",
-        "-i",
-        "--rm",
-        "-e",
-        "HUB_PAT_TOKEN",
-        "mcp/dockerhub",
-        "--transport=stdio",
-        "--username=lambdazb"
-      ],
-      "env": {
-        "HUB_PAT_TOKEN": "your_token"
-      }
     }
   }
 }

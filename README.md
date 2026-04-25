@@ -176,7 +176,16 @@ docker compose -f docker/debug/docker-compose.yml -f docker/debug/docker-compose
 **📦 演示部署环境**（拉取预构建镜像，适合快速演示）：
 
 ```bash
-docker compose -f docker/deploy/docker-compose.yml up -d
+cd docker/deploy
+docker compose -f docker-compose.yml up -d
+```
+
+默认拉取 `latest`。如需固定到某次 CI 产物，可复制 `.env.example` 为 `.env`，修改相应的 `PRODUCTS_IMAGE_TAG`、`APIGATEWAY_IMAGE_TAG`、`TESTMICROSERVICE_IMAGE_TAG`、`ADMINWEB_IMAGE_TAG` 为对应的 `sha-<commit>` tag，然后使用 `--env-file` 启动：
+
+```bash
+cp .env.example .env
+# 编辑 .env，修改 tag 为指定的 sha
+docker compose -f docker-compose.yml --env-file .env up -d
 ```
 
 **🌐 常用访问地址**：
@@ -345,7 +354,16 @@ docker compose -f docker/debug/docker-compose.yml -f docker/debug/docker-compose
 **📦 Demo deployment** (pull pre-built images, fastest to start):
 
 ```bash
-docker compose -f docker/deploy/docker-compose.yml up -d
+cd docker/deploy
+docker compose -f docker-compose.yml up -d
+```
+
+This pulls `latest` by default. To pin a specific CI image, copy `.env.example` to `.env`, modify `PRODUCTS_IMAGE_TAG`, `APIGATEWAY_IMAGE_TAG`, `TESTMICROSERVICE_IMAGE_TAG`, and `ADMINWEB_IMAGE_TAG` to the desired `sha-<commit>` tags, then start with `--env-file`:
+
+```bash
+cp .env.example .env
+# Edit .env and change tags to specific sha values
+docker compose -f docker-compose.yml --env-file .env up -d
 ```
 
 **🌐 Key URLs**:
@@ -520,4 +538,3 @@ Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for br
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).
-

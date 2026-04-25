@@ -21,6 +21,9 @@ Thank you for considering contributing! Whether you're fixing a typo, improving 
   - [Backend — Lint & Test](#backend--lint--test)
   - [Frontend — Lint & Test](#frontend--lint--test)
   - [README Quality Gate](#readme-quality-gate)
+- [CI/CD & Deployment](#cicd--deployment)
+  - [GitHub Actions Workflows](#github-actions-workflows)
+  - [Image Tags & Deployment](#image-tags--deployment)
 - [Submitting Issues](#submitting-issues)
 - [Submitting Pull Requests](#submitting-pull-requests)
 - [Adding a New Microservice](#adding-a-new-microservice)
@@ -70,7 +73,8 @@ docker compose -f docker/debug/docker-compose.yml \
                -f docker/debug/docker-compose.override.yml up
 
 # 3b. — OR — start the DEMO DEPLOYMENT environment (pre-built images)
-docker compose -f docker/deploy/docker-compose.yml up -d
+cd docker/deploy
+docker compose -f docker-compose.yml up -d
 ```
 
 Once all containers are healthy, open the services listed below:
@@ -83,6 +87,8 @@ Once all containers are healthy, open the services listed below:
 | Prometheus | <http://localhost:9090> |
 | Consul UI | <http://localhost:8500> |
 | RabbitMQ Management | <http://localhost:15672> (guest / guest) |
+
+> **Note on Demo Deployment**: By default, `docker-compose.yml` pulls `latest` images. To pin a specific CI build, see [Image Tags & Deployment](#image-tags--deployment).
 
 ---
 
@@ -247,9 +253,55 @@ To extend the typo dictionary, add entries to the `TYPO_KEYS` / `TYPO_VALS` arra
 
 ---
 
-## Submitting Issues
+## CI/CD & Deployment
 
-Before opening an issue:
+### GitHub Actions Workflows
+
+This project uses **GitHub Actions** to automatically build and push Docker images to Docker Hub on every push to `main`.
+
+Four independent workflows, each triggered only when its respective service changes:
+
+| Workflow | File | Trigger Paths | Output Images |
+|----------|------|---------------|--------------|
+| **Products Microservice** | `.github/workflows/ci-products.yml` | `src/backend/Services/Products/**`, `src/backend/BuildingBlocks/**`, `tests/ProductsServiceUnitTests/**` | `<user>/productmicroservice:latest`, `<user>/productmicroservice:sha-<commit>` |
+| **API Gateway** | `.github/workflows/ci-gateway.yml` | `src/backend/Gateway/**` | `<user>/apigateway:latest`, `<user>/apigateway:sha-<commit>` |
+| **Test Microservice** | `.github/workflows/ci-test-microservice.yml` | `src/backend/Services/Test/**`, `src/backend/BuildingBlocks/**` | `<user>/testmicroservice:latest`, `<user>/testmicroservice:sha-<commit>` |
+| **Frontend (admin-web)** | `.github/workflows/ci-frontend.yml` | `src/frontend/admin-web/**` | `<user>/admin-web:latest`, `<user>/admin-web:sha-<commit>` |
+
+**Key features:**
+- **Products workflow only**: Runs `dotnet test` before building to catch regressions early.
+- **Tag strategy**: Each image is tagged with `latest` (always the newest) and `sha-<commit>` (immutable reference to a specific build).
+- **Layer caching**: Uses GitHub Actions native layer cache (`type=gha`) to speed up rebuilds.
+
+### Image Tags & Deployment
+
+Images are built and pushed automatically by CI. For local or production deployments:
+
+**Default deployment** (pulls `latest`):
+```bash
+cd docker/deploy
+docker compose -f docker-compose.yml up -d
+```
+
+**Pin to a specific build** (e.g., to match a stable release or regression test):
+```bash
+cd docker/deploy
+cp .env.example .env
+
+# Edit .env to set image tags (use sha-<commit> from GitHub Actions logs)
+# PRODUCTS_IMAGE_TAG=sha-a1b2c3d4
+# APIGATEWAY_IMAGE_TAG=sha-a1b2c3d4
+# TESTMICROSERVICE_IMAGE_TAG=sha-a1b2c3d4
+# ADMINWEB_IMAGE_TAG=sha-a1b2c3d4
+
+docker compose -f docker-compose.yml --env-file .env up -d
+```
+
+The `.env.example` file documents all available environment variables. See [docker/deploy/.env.example](docker/deploy/.env.example) for details.
+
+---
+
+## Submitting Issues
 
 1. **Search** [existing issues](../../issues) — your problem may already be reported or solved.
 2. **Check** the [FAQ section in README.md](README.md#-常见问题) for common startup problems.

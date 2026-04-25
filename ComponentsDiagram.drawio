@@ -1,6 +1,6 @@
 <mxfile host="65bd71144e">
     <diagram id="components-codex" name="Page-1">
-        <mxGraphModel dx="1095" dy="1887" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="1100" background="#ffffff" math="0" shadow="0">
+        <mxGraphModel dx="1133" dy="1887" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="1100" background="#ffffff" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -36,9 +36,6 @@
                 </mxCell>
                 <mxCell id="grafana" value="Grafana" style="rounded=0;whiteSpace=wrap;html=1;fontSize=14;strokeWidth=1;fillColor=#DCCAF4;strokeColor=#8FA4BF;" parent="1" vertex="1">
                     <mxGeometry x="250" y="113" width="100" height="70" as="geometry"/>
-                </mxCell>
-                <mxCell id="5" value="" style="edgeStyle=none;html=1;" parent="1" source="loki" target="jaeger" edge="1">
-                    <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
                 <mxCell id="loki" value="Loki" style="rounded=0;whiteSpace=wrap;html=1;fontSize=14;strokeWidth=1;fillColor=#DCCAF4;strokeColor=#8FA4BF;" parent="1" vertex="1">
                     <mxGeometry x="455" y="118" width="100" height="70" as="geometry"/>
@@ -291,13 +288,13 @@
                         <mxPoint x="680" y="1010" as="targetPoint"/>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="49" value="" style="endArrow=classic;html=1;entryX=0.75;entryY=1;entryDx=0;entryDy=0;exitX=0.844;exitY=-0.015;exitDx=0;exitDy=0;exitPerimeter=0;rounded=0;strokeColor=#4A6FA5;strokeWidth=2;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=16;fontColor=default;labelBackgroundColor=default;" edge="1" parent="1" source="rabbitmq" target="test-api">
+                <mxCell id="49" value="" style="endArrow=classic;html=1;entryX=0.75;entryY=1;entryDx=0;entryDy=0;exitX=0.844;exitY=-0.015;exitDx=0;exitDy=0;exitPerimeter=0;rounded=0;strokeColor=#4A6FA5;strokeWidth=2;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=16;fontColor=default;labelBackgroundColor=default;" parent="1" source="rabbitmq" target="test-api" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <mxPoint x="680" y="860" as="sourcePoint"/>
                         <mxPoint x="780" y="860" as="targetPoint"/>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="50" value="async" style="edgeLabel;resizable=0;html=1;;align=center;verticalAlign=middle;fontSize=16;rounded=0;strokeColor=#4A6FA5;strokeWidth=2;fontFamily=Helvetica;fontColor=default;labelBackgroundColor=default;" connectable="0" vertex="1" parent="49">
+                <mxCell id="50" value="async" style="edgeLabel;resizable=0;html=1;;align=center;verticalAlign=middle;fontSize=16;rounded=0;strokeColor=#4A6FA5;strokeWidth=2;fontFamily=Helvetica;fontColor=default;labelBackgroundColor=default;" parent="49" connectable="0" vertex="1">
                     <mxGeometry relative="1" as="geometry">
                         <mxPoint y="-122" as="offset"/>
                     </mxGeometry>

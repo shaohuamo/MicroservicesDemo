@@ -14,7 +14,7 @@ dotnet build MicroservicesDemo.sln
 dotnet test tests/ProductsServiceUnitTests/ProductsServiceUnitTests.csproj
 
 # Start full environment (all infra + services)
-docker compose -f docker/debug/docker-compose.yml -f docker/debug/docker-compose.override.yml up
+docker compose -f docker/dev/docker-compose.yml -f docker/dev/docker-compose.override.yml up
 ```
 
 ## Architecture
@@ -69,7 +69,7 @@ builder.Services.ProductsMicroserviceInfrastructure(builder.Configuration);
 
 - Options pattern with strongly-typed classes: `PostgresOptions`, `RedisOptions`, etc.
 - Environment variable binding via `__` separator (e.g., `POSTGRES__HOST`)
-- See [docker-compose.override.yml](docker/debug/docker-compose.override.yml) for all env vars
+- See [docker-compose.override.yml](docker/dev/docker-compose.override.yml) for all env vars
 
 ## Error Handling
 

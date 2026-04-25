@@ -68,9 +68,9 @@ cd MicroservicesDemo
 git config core.hooksPath .githooks
 chmod +x .githooks/pre-commit scripts/check-readme.sh   # Git Bash / WSL2 / macOS / Linux
 
-# 3a. Start the LOCAL DEBUG environment (volume mounts + hot-reload)
-docker compose -f docker/debug/docker-compose.yml \
-               -f docker/debug/docker-compose.override.yml up
+# 3a. Start the LOCAL DEV environment (volume mounts + hot-reload)
+docker compose -f docker/dev/docker-compose.yml \
+               -f docker/dev/docker-compose.override.yml up
 
 # 3b. — OR — start the DEMO DEPLOYMENT environment (pre-built images)
 cd docker/deploy
@@ -366,7 +366,7 @@ Follow the Products service as the reference implementation:
 2. Register each layer's DI via extension methods (`Add<Name>Core`, `<Name>Infrastructure`).
 3. Add Consul self-registration in `Program.cs`.
 4. Add a route block in `src/backend/Gateway/ApiGateway/ocelot.json`.
-5. Add service definitions to both `docker/debug/docker-compose.yml` and `docker/deploy/docker-compose.yml`.
+5. Add service definitions to both `docker/dev/docker-compose.yml` and `docker/deploy/docker-compose.yml`.
 6. Add unit tests under `tests/<Name>UnitTests/`.
 
 Refer to [AGENTS.md](AGENTS.md) for naming conventions, DI scopes, and the full layering rules.

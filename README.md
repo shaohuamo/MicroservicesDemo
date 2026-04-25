@@ -96,6 +96,7 @@
 | 5 | **PostgreSQL + EF Core 数据持久化** | 通过 Options 模式管理连接配置，支持指数退避重试，可维护性强 |
 | 6 | **OpenTelemetry 全链路追踪** | 前端到网关再到后端与基础设施的完整链路，Trace、Metrics、Logs 统一通过 OTEL Collector 分发 |
 | 7 | **Clean Architecture + SOLID + 单元测试** | Products 服务三层分层，依赖方向严格内向；xUnit + Moq 覆盖核心服务用例 |
+| 8 | **GitHub Actions CI/CD 流程自动化** | 每个服务均有独立 workflow（`.github/workflows/`）：自动运行单元测试，通过后构建 Docker 镜像并推送至 DockerHub；路径感知触发确保只跑必要的检查，提高 CI 效率 |
 
 ### 🏗️ 架构图
 
@@ -146,6 +147,7 @@
 
 ```
 .github/
+  workflows/                     # GitHub Actions 工作流：ci-products、ci-frontend、ci-gateway、ci-test-microservice
   agents/                        # 自定义 agent，例如 C# Expert、Expert React Frontend Engineer
   skills/                        # 自定义 skill，例如 csharp-test-gen、premium-frontend-ui
   mcp-config.json                # MCP Server 配置，例如 filesystem、context7、dockerhub
@@ -159,7 +161,7 @@ src/backend/
   BuildingBlocks/CommonService/ # 跨服务共用组件：RabbitMQ 基类、TraceContext 中间件
 src/frontend/admin-web/        # Next.js 管理台，接入 OTEL
 configs/                       # 监控、告警、日志、数据库配置
-docker/                        # debug（本地开发）和 deploy（演示部署）两套 Compose
+docker/                        # 本地开发和演示部署的 Compose 配置
 tests/ProductsServiceUnitTests/ # Products 服务单元测试
 ```
 
@@ -167,10 +169,10 @@ tests/ProductsServiceUnitTests/ # Products 服务单元测试
 
 **⚡️ 环境要求**：Docker Desktop
 
-**📑 本地调试环境**（含 volume 挂载与热重载支持）：
+**📑 本地开发环境**（含 volume 挂载与热重载支持）：
 
 ```bash
-docker compose -f docker/debug/docker-compose.yml -f docker/debug/docker-compose.override.yml up
+docker compose -f docker/dev/docker-compose.yml -f docker/dev/docker-compose.override.yml up
 ```
 
 **📦 演示部署环境**（拉取预构建镜像，适合快速演示）：
@@ -274,6 +276,7 @@ dotnet test tests/ProductsServiceUnitTests/ProductsServiceUnitTests.csproj
 | 5 | **PostgreSQL + EF Core Persistence** | Connection configuration managed via Options pattern with exponential backoff retry for resilience |
 | 6 | **OpenTelemetry End-to-End Tracing** | Frontend to backend to infrastructure — traces, metrics, and logs unified through OTEL Collector |
 | 7 | **Clean Architecture + SOLID + Unit Tests** | Products service enforces strict inward dependency flow; xUnit + Moq covers all core service behaviors |
+| 8 | **GitHub Actions CI/CD Automation** | Each service has a dedicated workflow (`.github/workflows/`): automatically runs unit tests, builds Docker images on success, and pushes to DockerHub; path-aware triggers ensure only relevant checks run, maximizing CI efficiency |
 
 ### 🏗️ Architecture
 
@@ -324,6 +327,7 @@ dotnet test tests/ProductsServiceUnitTests/ProductsServiceUnitTests.csproj
 
 ```
 .github/
+  workflows/                     # GitHub Actions workflows: ci-products, ci-frontend, ci-gateway, ci-test-microservice
   agents/                        # Custom agents such as C# Expert and Expert React Frontend Engineer
   skills/                        # Custom skills such as csharp-test-gen and premium-frontend-ui
   mcp-config.json                # MCP server configuration, including filesystem, context7, and dockerhub
@@ -337,7 +341,7 @@ src/backend/
   BuildingBlocks/CommonService/  # Shared: RabbitMQ base classes, TraceContext middleware
 src/frontend/admin-web/         # Next.js admin UI with OTEL instrumentation
 configs/                        # Monitoring, alerting, logging, database, exporter config
-docker/                         # debug (dev) and deploy (demo) Compose files
+docker/                         # Local dev and demo deployment Compose files
 tests/ProductsServiceUnitTests/ # Unit tests for Products services
 ```
 
@@ -345,10 +349,10 @@ tests/ProductsServiceUnitTests/ # Unit tests for Products services
 
 **⚡️ Prerequisite**: Docker Desktop
 
-**📑 Local debug environment** (with volume mounts and hot reload support):
+**📑 Local dev environment** (with volume mounts and hot reload support):
 
 ```bash
-docker compose -f docker/debug/docker-compose.yml -f docker/debug/docker-compose.override.yml up
+docker compose -f docker/dev/docker-compose.yml -f docker/dev/docker-compose.override.yml up
 ```
 
 **📦 Demo deployment** (pull pre-built images, fastest to start):

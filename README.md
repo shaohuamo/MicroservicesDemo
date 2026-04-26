@@ -240,6 +240,18 @@ docker compose -f docker-compose.yml --env-file .env up -d
   - 症状：Dashboard 面板显示 `No data`，但应用和采集链路本身运行正常。
   - 解决方案：通常是 OpenTelemetry 相关 package 更新后指标名称发生变化。需要对照 Prometheus 中当前实际采集到的 metric name，更新 Grafana dashboard 查询语句。
 
+6. **RabbitMQ 启动失败：`Error when reading /var/lib/rabbitmq/.erlang.cookie: eacces`**
+  - 症状：RabbitMQ 容器启动时抛出权限错误，导致容器无法正常启动。
+  - 原因：Docker volume 中旧残留的权限不一致，导致 RabbitMQ 容器内 `rabbitmq` 用户无法读写 `.erlang.cookie` 文件。
+  - 解决方案：删除 `rabbitmq_data` volume 后重新启动即可（Docker 会自动以正确权限重建 volume）。
+    - **命令行方式**：
+      ```bash
+      docker compose down
+      docker volume rm <your-compose-project-name>_rabbitmq_data
+      docker compose up
+      ```
+    - **UI 方式**：在 Docker Desktop 的 Volumes 面板中找到 `rabbitmq_data`，点击删除按钮后，再执行 `docker compose up`。
+
 ### ✅ 测试与验证
 
 ```bash
@@ -420,6 +432,18 @@ docker compose -f docker-compose.yml --env-file .env up -d
 5. **Metric names in Grafana dashboards do not match the actual metric names**
   - Symptom: Panels show `No data` even though the application and telemetry pipeline are running.
   - Fix: This is commonly caused by OpenTelemetry package upgrades that rename exported metrics. Compare the live metric names in Prometheus and update the Grafana dashboard queries accordingly.
+
+6. **RabbitMQ fails to start with `Error when reading /var/lib/rabbitmq/.erlang.cookie: eacces`**
+  - Symptom: RabbitMQ container exits at startup with a permission error.
+  - Root cause: Stale permissions in the Docker volume prevent the `rabbitmq` user inside the container from reading/writing `.erlang.cookie`.
+  - Fix: Delete the `rabbitmq_data` volume and restart — Docker will recreate it with correct permissions.
+    - **Command-line approach**:
+      ```bash
+      docker compose down
+      docker volume rm <your-compose-project-name>_rabbitmq_data
+      docker compose up
+      ```
+    - **UI approach**: Navigate to the Volumes panel in Docker Desktop, find `rabbitmq_data`, click delete, then run `docker compose up`.
 
 ### ✅ Testing and Verification
 

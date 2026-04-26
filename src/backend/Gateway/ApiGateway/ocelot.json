@@ -115,7 +115,7 @@
     }
   ], // required section
   "GlobalConfiguration": { // required 
-    "BaseUrl": "http://apigateway:9080", //apigateway is host name of apigateway's container——http://localhost:5085
+    "BaseUrl": "http://apigateway8080", //apigateway is host name of apigateway's container——http://localhost:5085
     "ServiceDiscoveryProvider": {
       "Host": "consul", // Consul container's host name——localhost
       "Port": 8500, // Consul API port

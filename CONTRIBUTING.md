@@ -126,7 +126,7 @@ Dependencies flow **inward only**: `API → Infrastructure → Core`. Never impo
 This project uses a **Feature Branch** model:
 
 ```
-main                     ← stable, always deployable
+master                   ← stable, always deployable
   └── feature/<topic>    ← new features
   └── fix/<topic>        ← bug fixes
   └── docs/<topic>       ← documentation-only changes
@@ -134,7 +134,7 @@ main                     ← stable, always deployable
 ```
 
 **Rules:**
-- Branch from `main`, target `main`.
+- Branch from `master`, target `master`.
 - Keep branches short-lived and focused on a single concern.
 - Delete the branch after the PR is merged.
 
@@ -257,7 +257,7 @@ To extend the typo dictionary, add entries to the `TYPO_KEYS` / `TYPO_VALS` arra
 
 ### GitHub Actions Workflows
 
-This project uses **GitHub Actions** to automatically build and push Docker images to Docker Hub on every push to `main`.
+This project uses **GitHub Actions** to automatically build and push Docker images to Docker Hub on every push to `master`.
 
 Four independent workflows, each triggered only when its respective service changes:
 
@@ -305,7 +305,7 @@ The `.env.example` file documents all available environment variables. See [dock
 
 1. **Search** [existing issues](../../issues) — your problem may already be reported or solved.
 2. **Check** the [FAQ section in README.md](README.md#-常见问题) for common startup problems.
-3. **Reproduce** the issue with the latest version from `main`.
+3. **Reproduce** the issue with the latest version from `master`.
 
 When filing an issue, include:
 
@@ -320,7 +320,7 @@ When filing an issue, include:
 
 ### Before You Submit
 
-- [ ] The branch is based on the latest `main`.
+- [ ] The branch is based on the latest `master`.
 - [ ] `dotnet build MicroservicesDemo.sln` succeeds with no warnings in changed files.
 - [ ] `dotnet test tests/ProductsServiceUnitTests/...` passes.
 - [ ] `npm run lint` and `npm run test` pass (if frontend files changed).
@@ -351,7 +351,7 @@ Closes #
 2. Mark **Ready for Review** when all checklist items pass.
 3. At least one approval is required before merging.
 4. Maintainers may request changes — please respond or resolve within a reasonable timeframe.
-5. PRs are merged with **Squash & Merge** to keep `main` history clean.
+5. PRs are merged with **Squash & Merge** to keep `master` history clean.
 
 ---
 

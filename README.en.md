@@ -117,6 +117,7 @@ The badges above dynamically show the latest `dev` branch run for each pipeline;
 | 9 | **Multi-Channel Asynchronous Messaging** | RabbitMQ supports local event demonstrations, while Azure Service Bus carries product-update topics |
 | 10 | **Container and AKS Delivery** | Azure Pipelines build and push images to ACR, then deploy multi-environment Kubernetes manifests to AKS |
 | 11 | **Production-Grade Secret Management** | Azure DevOps Variable Groups retrieve values from Azure Key Vault and deploy environment-specific Kubernetes Secrets |
+| 12 | **HTTP Resilience and Circuit Breaker** | Products API applies `AddStandardResilienceHandler()` from `Microsoft.Extensions.Http.Resilience` to HttpClient defaults, combining timeouts, retries, and a circuit breaker; repeated downstream failures fail fast and temporarily stop calls to prevent thread buildup and cascading failures, then probe recovery automatically |
 
 ## 🏗️ Architecture
 
@@ -182,6 +183,11 @@ Solid lines represent runtime requests or data flows; dashed lines represent dis
 - The API Gateway is the single entry point
 - Local services self-register with Consul and are discovered by service name
 - AKS uses Kubernetes Service DNS and ClusterIP Services instead of Consul
+
+**🛡️ Resilient Communication (Polly / Microsoft.Extensions.Http.Resilience)**
+
+- Products API HttpClients use the standard resilience pipeline with request timeouts, exponential-backoff retries, and a Circuit Breaker by default
+- When a downstream dependency fails repeatedly, the breaker enters Open state and rejects calls quickly; after the cool-down it enters Half-Open to probe recovery and restores normal traffic after a successful probe, reducing cascading failures and resource exhaustion
 
 **🔐 Authentication (IdentityServer + Admin Web)**
 

@@ -117,6 +117,7 @@
 | 9 | **多通道异步消息** | RabbitMQ 负责本地事件演示，Azure Service Bus 承载产品更新主题 |
 | 10 | **容器与 AKS 交付** | Azure Pipelines 构建服务镜像并推送至 Azure Container Registry（ACR），随后使用 `aks/` 中的多环境 Kubernetes 清单部署到 AKS；流水线同时覆盖基础设施、Ingress 与集群附加组件 |
 | 11 | **生产级密钥管理** | Azure DevOps Variable Groups 关联 Azure Key Vault 获取敏感配置，部署流水线将其同步为各环境的 Kubernetes Secrets，应用通过 `secretKeyRef` 注入运行时配置 |
+| 12 | **HTTP 弹性与 Circuit Breaker** | Products API 通过 `Microsoft.Extensions.Http.Resilience` 的 `AddStandardResilienceHandler()` 为 HttpClient 统一配置超时、重试与断路器；下游连续故障时快速失败并暂时阻断请求，避免线程堆积和故障级联，服务恢复后再自动探测恢复 |
 
 ## 🏗️ 架构图
 
@@ -182,6 +183,11 @@
 - API Gateway 统一对外，客户端无需感知内部服务地址
 - 本地 Docker Compose 中，服务自注册到 Consul，网关按服务名动态发现并路由
 - AKS 环境不使用 Consul；网关通过 Kubernetes Service DNS 访问 ClusterIP Service
+
+**🛡️ 弹性通信（Polly / Microsoft.Extensions.Http.Resilience）**
+
+- Products API 的 HttpClient 默认启用标准弹性处理管道，组合请求超时、指数退避重试和 Circuit Breaker
+- 断路器在下游依赖连续失败时进入 Open 状态，快速拒绝后续请求；经过冷却期后进入 Half-Open 状态探测服务，成功后恢复正常流量，从而降低故障级联和资源耗尽风险
 
 **🔐 身份认证（IdentityServer + Admin Web）**
 

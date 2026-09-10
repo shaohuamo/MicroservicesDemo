@@ -4,7 +4,48 @@
       "commandName": "DockerCompose",
       "commandVersion": "1.0",
       "serviceActions": {
-        "productsmicroservice.api": "StartDebugging"
+        "productsmicroservice.api": "StartDebugging",
+        "admin-web": "StartWithoutDebugging",
+        "alertmanager": "StartWithoutDebugging",
+        "apigateway": "StartDebugging",
+        "consul": "StartWithoutDebugging",
+        "grafana": "StartWithoutDebugging",
+        "identityserver": "StartDebugging",
+        "jaeger": "StartWithoutDebugging",
+        "loki": "StartWithoutDebugging",
+        "otel-collector": "StartWithoutDebugging",
+        "postgres": "StartWithoutDebugging",
+        "postgres-exporter": "StartWithoutDebugging",
+        "prometheus": "StartWithoutDebugging",
+        "promtail": "StartWithoutDebugging",
+        "rabbitmq": "StartWithoutDebugging",
+        "redis": "StartWithoutDebugging",
+        "redis-exporter": "StartWithoutDebugging",
+        "test-microservice1": "StartDebugging"
+      }
+    },
+    "Docker Compose Without Observability": {
+      "commandName": "DockerCompose",
+      "commandVersion": "1.0",
+      "serviceActions": {
+        "productsmicroservice.api": "StartDebugging",
+        "admin-web": "StartWithoutDebugging",
+        "alertmanager": "DoNotStart",
+        "apigateway": "StartDebugging",
+        "consul": "StartWithoutDebugging",
+        "grafana": "DoNotStart",
+        "identityserver": "StartDebugging",
+        "jaeger": "DoNotStart",
+        "loki": "DoNotStart",
+        "otel-collector": "DoNotStart",
+        "postgres": "StartWithoutDebugging",
+        "postgres-exporter": "DoNotStart",
+        "prometheus": "DoNotStart",
+        "promtail": "DoNotStart",
+        "rabbitmq": "StartWithoutDebugging",
+        "redis": "StartWithoutDebugging",
+        "redis-exporter": "DoNotStart",
+        "test-microservice1": "StartDebugging"
       }
     }
   }

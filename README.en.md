@@ -336,6 +336,7 @@ Backend tests cover product CRUD, message idempotency, API controllers, exceptio
 - Add RabbitMQ retry policies and a Dead Letter Exchange to complete local messaging resilience
 - Introduce a Transactional Outbox: persist cache-invalidation events in the same database transaction as product changes, reliably dispatch them to the message broker from a background worker, and use retryable, idempotent consumers to remove or rebuild Redis entries so transient Redis failures or service restarts do not leave stale cache entries indefinitely
 - Introduce the Saga pattern for distributed transaction consistency
+- Add optional TOTP multi-factor authentication: provide an IdentityServer account-security page where users can bind authenticator apps such as Google Authenticator or Microsoft Authenticator; require a six-digit time-based code after password verification, with one-time recovery codes, authenticator reset, and security audit events. 2FA is not mandatory in the current demo; it can be enforced for administrators or sensitive operations later. Email codes may be used for recovery or as a transition path, but not as the final high-assurance authenticator
 
 
 ## 🖼️ Screenshots and Evidence

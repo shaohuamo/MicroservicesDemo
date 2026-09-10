@@ -335,6 +335,7 @@ npm run build
 - 为 RabbitMQ 增加重试策略与 Dead Letter Exchange，补齐本地消息链路容错
 - 引入 Transactional Outbox：在产品数据变更的同一数据库事务中持久化缓存失效事件，由后台任务可靠投递至消息队列，并通过可重试、幂等的消费者删除或重建 Redis 缓存，避免因 Redis 短暂故障或服务重启而永久遗留旧缓存
 - 引入 Saga 模式处理跨服务分布式一致性问题
+- 增加可选的 TOTP 多因素认证：在 IdentityServer 中提供账户安全设置页，允许普通用户绑定 Google Authenticator 或 Microsoft Authenticator 等验证器 App；登录时在密码验证后校验 6 位动态验证码，并提供一次性恢复码、重置验证器和安全审计记录。当前 Demo 暂不强制启用 2FA；若面向管理员或高敏感操作，可将 TOTP 调整为强制策略。邮箱验证码可作为恢复或过渡方案，但不作为最终的强认证方式
 
 ## 🖼️ 截图与证据说明
 

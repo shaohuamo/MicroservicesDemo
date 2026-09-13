@@ -14,7 +14,6 @@ trigger:
       - src/backend/IdentityServer/**
       - aks/manifests/*/backend/identityserver-*.yaml
       - aks/pipelines/azure-pipelines-identityserver.yaml
-      - aks/pipelines/templates/identityserver-normalized-email-migration.yml
 
 resources:
   - repo: self
@@ -145,11 +144,6 @@ stages:
                     manifests: |
                       $(Pipeline.Workspace)/identityserver-secrets-dev.yaml
 
-                - template: templates/identityserver-normalized-email-migration.yml
-                  parameters:
-                    namespace: dev
-                    kubernetesServiceConnection: dev-microservicesdemo-aks-cluster-dev-1778160743494
-
                 - pwsh: |
                     Remove-Item -LiteralPath "$(Pipeline.Workspace)/identityserver-signing-prod.pfx" -ErrorAction SilentlyContinue
                   displayName: Remove temporary IdentityServer signing certificate file
@@ -238,11 +232,6 @@ stages:
                       --from-literal=resend-email-api-token=$(resend-email-api-token)
                       --from-file=identityserver-signing-prod.pfx=$(Pipeline.Workspace)/identityserver-signing-prod.pfx
 
-                - template: templates/identityserver-normalized-email-migration.yml
-                  parameters:
-                    namespace: qa
-                    kubernetesServiceConnection: qa-microservicesdemo-aks-cluster-qa-1778160953610
-
                 - pwsh: |
                     Remove-Item -LiteralPath "$(Pipeline.Workspace)/identityserver-signing-prod.pfx" -ErrorAction SilentlyContinue
                   displayName: Remove temporary IdentityServer signing certificate file
@@ -327,11 +316,6 @@ stages:
                       --from-literal=identityserver-signing-cert-password=$(identityserver-signing-cert-password)
                       --from-literal=resend-email-api-token=$(resend-email-api-token)
                       --from-file=identityserver-signing-prod.pfx=$(Pipeline.Workspace)/identityserver-signing-prod.pfx
-
-                - template: templates/identityserver-normalized-email-migration.yml
-                  parameters:
-                    namespace: uat
-                    kubernetesServiceConnection: uat-microservicesdemo-aks-cluster-uat-1778161095509
 
                 - pwsh: |
                     Remove-Item -LiteralPath "$(Pipeline.Workspace)/identityserver-signing-prod.pfx" -ErrorAction SilentlyContinue
@@ -418,11 +402,6 @@ stages:
                       --from-literal=resend-email-api-token=$(resend-email-api-token)
                       --from-file=identityserver-signing-prod.pfx=$(Pipeline.Workspace)/identityserver-signing-prod.pfx
 
-                - template: templates/identityserver-normalized-email-migration.yml
-                  parameters:
-                    namespace: staging
-                    kubernetesServiceConnection: staging-microservicesdemo-aks-cluster-staging-1778161154539
-
                 - pwsh: |
                     Remove-Item -LiteralPath "$(Pipeline.Workspace)/identityserver-signing-prod.pfx" -ErrorAction SilentlyContinue
                   displayName: Remove temporary IdentityServer signing certificate file
@@ -507,11 +486,6 @@ stages:
                       --from-literal=identityserver-signing-cert-password=$(identityserver-signing-cert-password)
                       --from-literal=resend-email-api-token=$(resend-email-api-token)
                       --from-file=identityserver-signing-prod.pfx=$(Pipeline.Workspace)/identityserver-signing-prod.pfx
-
-                - template: templates/identityserver-normalized-email-migration.yml
-                  parameters:
-                    namespace: prod
-                    kubernetesServiceConnection: prod-microservicesdemo-aks-cluster-prod-1778161221255
 
                 - pwsh: |
                     Remove-Item -LiteralPath "$(Pipeline.Workspace)/identityserver-signing-prod.pfx" -ErrorAction SilentlyContinue

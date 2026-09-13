@@ -193,7 +193,7 @@ Solid lines represent runtime requests or data flows; dashed lines represent dis
 
 - Admin Web uses OIDC Authorization Code Flow with server-side sessions and token refresh
 - Registration, Resend email confirmation, and Redis-backed rate limiting are included. A unique `NormalizedEmail` index complements `RequireUniqueEmail` to enforce case-insensitive email uniqueness even when concurrent registrations bypass remote validation; Bearer tokens and the `products-api` scope are enforced
-- The unique index is managed by an EF Migration. Before deploying IdentityServer, the AKS pipeline runs repeatable PostgreSQL DDL and blocks the release if historical duplicate emails are found, rather than changing user data automatically
+- The unique index is managed by an EF Migration and applied automatically by `Database.Migrate()` when IdentityServer starts; EF migration history ensures that it runs only once per database
 - Logout adds access tokens to a Redis denylist that the gateway can validate in fail-closed mode
 
 **📨 Messaging Reliability (RabbitMQ + Azure Service Bus)**

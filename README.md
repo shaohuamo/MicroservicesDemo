@@ -193,7 +193,7 @@
 
 - Admin Web 使用 OIDC Authorization Code Flow 登录，并维护服务端会话与令牌刷新
 - 支持用户注册、Resend 邮箱确认与 Redis 频率限制；`NormalizedEmail` 上的唯一索引与 `RequireUniqueEmail` 共同保证邮箱大小写无关的唯一性，即使并发注册绕过远程校验也不会产生重复账户；Products 路由要求有效 Bearer Token 和 `products-api` scope
-- 唯一索引通过 EF Migration 管理；IdentityServer 的 AKS 流水线会在应用部署前运行可重复执行的 PostgreSQL DDL，并在发现历史重复邮箱时阻断发布，避免自动修改用户数据
+- 唯一索引通过 EF Migration 管理，并由 IdentityServer 启动时的 `Database.Migrate()` 自动应用；EF 的迁移历史确保同一数据库只执行一次
 - 登出时将访问令牌加入 Redis 拒绝列表，网关可配置为校验失败时拒绝访问
 
 **📨 消息可靠性（RabbitMQ + Azure Service Bus）**

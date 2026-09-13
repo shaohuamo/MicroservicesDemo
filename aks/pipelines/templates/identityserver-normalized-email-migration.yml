@@ -1,0 +1,101 @@
+parameters:
+  - name: namespace
+    type: string
+  - name: kubernetesServiceConnection
+    type: string
+
+steps:
+  - pwsh: |
+      $sqlPath = Join-Path "$(Build.SourcesDirectory)" "src/backend/IdentityServer/Data/Sql/20260910163229_MakeNormalizedEmailUnique.sql"
+      $sql = [IO.File]::ReadAllBytes($sqlPath)
+      $encodedSql = [Convert]::ToBase64String($sql)
+      $namespace = '${{ parameters.namespace }}'
+      $resourceName = 'identityserver-normalized-email-migration'
+      $manifestPath = "$(Pipeline.Workspace)/$resourceName.yaml"
+
+      @"
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: $resourceName
+        namespace: $namespace
+      binaryData:
+        migration.sql: $encodedSql
+      ---
+      apiVersion: batch/v1
+      kind: Job
+      metadata:
+        name: $resourceName
+        namespace: $namespace
+      spec:
+        backoffLimit: 0
+        ttlSecondsAfterFinished: 300
+        template:
+          spec:
+            restartPolicy: Never
+            containers:
+              - name: migration
+                image: postgres:16-alpine
+                command: ["/bin/sh", "-ec"]
+                args:
+                  - >-
+                    export PGPASSWORD="$POSTGRES_PASSWORD";
+                    psql --set=ON_ERROR_STOP=1
+                    --host="$POSTGRES_HOST"
+                    --port=5432
+                    --username="$POSTGRES_USER"
+                    --dbname=identitydatabase
+                    --file=/migrations/migration.sql;
+                env:
+                  - name: POSTGRES_HOST
+                    valueFrom:
+                      secretKeyRef:
+                        name: identityserver-secrets
+                        key: postgres-host
+                  - name: POSTGRES_USER
+                    valueFrom:
+                      secretKeyRef:
+                        name: identityserver-secrets
+                        key: postgres-user
+                  - name: POSTGRES_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: identityserver-secrets
+                        key: postgres-password
+                volumeMounts:
+                  - name: migration
+                    mountPath: /migrations
+                    readOnly: true
+            volumes:
+              - name: migration
+                configMap:
+                  name: $resourceName
+      "@ | Set-Content -Path $manifestPath -NoNewline
+    displayName: Render IdentityServer normalized-email migration Job
+
+  - task: Kubernetes@1
+    displayName: Remove previous IdentityServer normalized-email migration Job
+    inputs:
+      connectionType: kubernetesServiceConnection
+      kubernetesServiceEndpoint: ${{ parameters.kubernetesServiceConnection }}
+      namespace: ${{ parameters.namespace }}
+      command: delete
+      arguments: job/identityserver-normalized-email-migration configmap/identityserver-normalized-email-migration --ignore-not-found=true
+
+  - task: KubernetesManifest@1
+    displayName: Apply IdentityServer normalized-email migration Job
+    inputs:
+      action: deploy
+      connectionType: kubernetesServiceConnection
+      kubernetesServiceConnection: ${{ parameters.kubernetesServiceConnection }}
+      namespace: ${{ parameters.namespace }}
+      manifests: $(Pipeline.Workspace)/identityserver-normalized-email-migration.yaml
+
+  - task: Kubernetes@1
+    displayName: Wait for IdentityServer normalized-email migration
+    inputs:
+      connectionType: kubernetesServiceConnection
+      kubernetesServiceEndpoint: ${{ parameters.kubernetesServiceConnection }}
+      namespace: ${{ parameters.namespace }}
+      command: wait
+      arguments: --for=condition=complete --timeout=120s job/identityserver-normalized-email-migration

@@ -14,7 +14,7 @@ services:
       - app-network
     depends_on:
       - jaeger
-      - loki
+      # - loki
   jaeger:
     image: jaegertracing/all-in-one:1.54
     container_name: jaeger-container
@@ -210,12 +210,12 @@ services:
      - RabbitMQ__InitialDelaySeconds=2
      - RabbitMQ__MaxDelaySeconds=30
      - RabbitMQ__NetworkRecoveryIntervalSeconds=10
-     - RabbitMQ_Products_Exchange=products.exchange
-     - RabbitMQ_Products_RoutingKey=products.add
-     - ServiceBus__ConnectionString=${SERVICEBUS_CONNECTION_STRING}
-     - ServiceBus__ProductsUpdatesTopic=products.updates
-     - ServiceBus__ProductsUpdatesSubscription=products.updates.test
-     - ServiceBus__ProductsUpdatesReprocessTopic=products.updates.Reprocess
+     - ProductOperationMessaging__ExchangeName=products.operations
+     - ProductOperationMessaging__RoutingKey=products.operation.completed
+     - ProductOperationOutbox__PollIntervalMilliseconds=1000
+     - ProductOperationOutbox__BatchSize=50
+     - ProductOperationOutbox__LeaseSeconds=30
+     - ProductOperationOutbox__MaxRetryDelaySeconds=60
      - Redis__ConnectionString=redis:6379
      - Redis__InstanceName=ProductMicroservice_
      - Redis__ConnectRetry=5
@@ -227,8 +227,6 @@ services:
      - Redis__DelayedDeleteMs=2000
      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
      - OTEL_RESOURCE_ATTRIBUTES=deployment.environment=development
-     - TestMicroserviceName=testapi1
-     - TestMicroservicePort=8080
      - CacheOptions__DefaultExpirationMinutes=120
      - CacheOptions__NegativeCacheExpirationMinutes=10
      - UseConsul=true
@@ -268,7 +266,7 @@ services:
      - POSTGRES__MaxRetryDelaySeconds=10
      - IdentityServer__IssuerUri=http://localhost:8485
      - IdentityServer__TokenLifetimes__AccessTokenSeconds=900
-     - IdentityServer__TokenLifetimes__AbsoluteRefreshTokenSeconds=2592000
+     - IdentityServer__TokenLifetimes__AbsoluteRefreshTokenSeconds=${REFRESH_TOKEN_ABSOLUTE_LIFETIME_SECONDS:-2592000}
      - ResendEmail__ApiToken=${RESEND_EMAIL_API_TOKEN:-}
      - ResendEmail__From=${RESEND_EMAIL_FROM:-MicroservicesDemo <verify@auth.250669.xyz>}
      - ResendEmail__PublicBaseUrl=${IDENTITYSERVER_PUBLIC_URL:-http://localhost:8485}
@@ -328,7 +326,7 @@ services:
     depends_on:
      consul: #service name
        condition: service_healthy
-     test-microservice1:
+     notificationsmicroservice.api:
        condition: service_started
      productsmicroservice.api:
        condition: service_started
@@ -336,22 +334,28 @@ services:
        condition: service_started
      redis:
        condition: service_healthy
-  test-microservice1:
-    image: testmicroserviceapi:dev
+  notificationsmicroservice.api:
+    image: notificationsmicroserviceapi:dev
     build:
       context: ../..
-      dockerfile: src/backend/Services/Test/TestMicroservice.API/Dockerfile
-    container_name: testMicroservice-container-1
-    hostname: testapi1
+      dockerfile: src/backend/Services/Notifications/NotificationsMicroservice.API/Dockerfile
+    container_name: notificationsMicroservice-container
+    hostname: notificationapi
     environment:
      - ASPNETCORE_ENVIRONMENT=Development
-     - App_Name=App_A
      - UseConsul=true
      - Consul__Host=consul
      - Consul__Port=8500
-     - Consul__Discovery__ServiceName=testservice
-     - Consul__Discovery__Hostname=testapi1
-     - Consul__Discovery__Port=8080 #test-microservice port inside container
+     - Consul__Discovery__ServiceName=notificationservice
+     - Consul__Discovery__Hostname=notificationapi
+     - Consul__Discovery__Port=8080
+     - POSTGRES__HOST=postgres
+     - POSTGRES__PORT=5432
+     - POSTGRES__DATABASE=notificationsdatabase
+     - POSTGRES__USER=postgres
+     - POSTGRES__PASSWORD=admin
+     - POSTGRES__MaxRetryCount=5
+     - POSTGRES__MaxRetryDelaySeconds=10
      - RabbitMQ__HostName=rabbitmq
      - RabbitMQ__UserName=guest
      - RabbitMQ__Password=guest
@@ -360,30 +364,43 @@ services:
      - RabbitMQ__InitialDelaySeconds=2
      - RabbitMQ__MaxDelaySeconds=30
      - RabbitMQ__NetworkRecoveryIntervalSeconds=10
-     - RabbitMQ_Products_Exchange=products.exchange
-     - RabbitMQ_Products_RoutingKey=products.add
-     - RabbitMQ_Products_Queue=products.add.queue
-     - ServiceBus__ConnectionString=${SERVICEBUS_CONNECTION_STRING}
-     - ServiceBus__ProductsUpdatesTopic=products.updates
-     - ServiceBus__ProductsUpdatesSubscription=products.updates.test
-     - ServiceBus__ProductsUpdatesReprocessTopic=products.updates.Reprocess
+     - ProductOperations__Exchange=products.operations
+     - ProductOperations__RoutingKey=products.operation.completed
+     - ProductOperations__Queue=notifications.products.operations
+     - ProductOperations__DeadLetterExchange=products.operations.dlx
+     - ProductOperations__DeadLetterQueue=notifications.products.operations.dead-letter
+     - ProductOperations__PrefetchCount=20
      - Redis__ConnectionString=redis:6379
-     - Redis__InstanceName=TestMicroservice_
-     - MessageIdempotency__KeyPrefix=processed-message
-     - MessageIdempotency__ProcessedMessageTtlMinutes=1440
+     - Redis__InstanceName=NotificationsMicroservice_
+     - Redis__ConnectRetry=5
+     - Redis__ConnectTimeout=5000
+     - Redis__SyncTimeout=5000
+     - Redis__AbortOnConnectFail=false
+     - ResendEmail__ApiToken=${RESEND_EMAIL_API_TOKEN:-}
+     - ResendEmail__From=${RESEND_EMAIL_FROM:-MicroservicesDemo <notifications@auth.250669.xyz>}
+     - Delivery__PollingIntervalMilliseconds=1000
+     - Delivery__BatchSize=50
+     - Delivery__LeaseSeconds=30
+     - Delivery__SseAckDeadlineSeconds=5
+     - Delivery__MaxSseAttempts=2
+     - Delivery__MaxAttempts=5
+     - Delivery__RetentionDays=30
+     - Delivery__CleanupIntervalMinutes=60
      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-     - OTEL_RESOURCE_ATTRIBUTES=service.name=test.api,deployment.environment=development 
+     - OTEL_RESOURCE_ATTRIBUTES=service.name=notifications.api,deployment.environment=development
     ports:
      - 8580:8080
     networks:
      - app-network
     depends_on:
-     rabbitmq: #service name
-      condition: service_healthy
-     redis:
-      condition: service_healthy
-     consul:
-      condition: service_healthy
+      rabbitmq: #service name
+       condition: service_healthy
+      postgres:
+       condition: service_healthy
+      redis:
+       condition: service_healthy
+      consul:
+       condition: service_healthy
   consul:
     image: hashicorp/consul:latest
     container_name: consul-container
@@ -423,6 +440,7 @@ services:
       - IDENTITYSERVER_INTERNAL_URL=http://identityserver:8080
       - IDENTITYSERVER_FRONTEND_CLIENT_ID=test_app
       - IDENTITYSERVER_FRONTEND_CLIENT_SECRET=frontend-secret
+      - AUTH_REFRESH_TOKEN_ABSOLUTE_LIFETIME_SECONDS=${REFRESH_TOKEN_ABSOLUTE_LIFETIME_SECONDS:-2592000}
       - AUTH_SECRET=dev-auth-session-secret-change-me-please
       - AUTH_POSTGRES_HOST=postgres
       - AUTH_POSTGRES_PORT=5432
@@ -431,6 +449,9 @@ services:
       - AUTH_POSTGRES_PASSWORD=admin
       - AUTH_REDIS_URL=redis://redis:6379
       - AUTH_ACCESS_TOKEN_DENYLIST_PREFIX=admin-web:access-token-denylist
+      - NOTIFICATIONS_REDIS_URL=redis://redis:6379
+      - NOTIFICATIONS_SSE_HEARTBEAT_SECONDS=15
+      - NOTIFICATIONS_PRESENCE_TTL_SECONDS=45
     ports:
       - 3000:3000
     networks:

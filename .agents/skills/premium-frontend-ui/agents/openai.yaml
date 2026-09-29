@@ -1,0 +1,4 @@
+interface:
+  display_name: "Premium Frontend UI"
+  short_description: "Design polished, high-performance frontend experiences"
+  default_prompt: "Use $premium-frontend-ui to design or improve a polished frontend experience."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "README Showcase Upgrader"
+  short_description: "Upgrade README presentation with evidence-based polish"
+  default_prompt: "Use $readme-showcase-upgrader to improve this project's README for clarity and presentation."

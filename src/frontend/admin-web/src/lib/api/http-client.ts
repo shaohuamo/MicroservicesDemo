@@ -1,4 +1,5 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from "axios";
+import { recordBrowserApiRequestMetric } from "@/lib/browser-api-metrics";
 
 // ---------------------------------------------------------------------------
 // Circuit Breaker — opens after consecutive failures, rejects fast until reset
@@ -56,6 +57,26 @@ export function isRetryableError(error: AxiosError): boolean {
   return status === 408 || status === 429 || status >= 500;
 }
 
+export function getApiErrorMessage(error: AxiosError): string | undefined {
+  const data = error.response?.data;
+  if (!data || typeof data !== "object") return undefined;
+
+  const detail = (data as { detail?: unknown }).detail;
+  return typeof detail === "string" && detail.trim() ? detail : undefined;
+}
+
+export function getApiErrorCode(error: unknown): string | undefined {
+  if (!axios.isAxiosError(error)) return undefined;
+
+  const data = error.response?.data;
+  if (!data || typeof data !== "object") return undefined;
+
+  const errorCode = (data as { errorCode?: unknown }).errorCode;
+  return typeof errorCode === "string" && errorCode.trim()
+    ? errorCode
+    : undefined;
+}
+
 export function computeRetryDelay(attempt: number): number {
   const exponential = Math.min(
     INITIAL_DELAY_MS * Math.pow(2, attempt),
@@ -73,6 +94,8 @@ function delay(ms: number): Promise<void> {
 // ---------------------------------------------------------------------------
 interface RetryableConfig extends InternalAxiosRequestConfig {
   __retryCount?: number;
+  __requestStartedAt?: number;
+  __requestOperation?: string;
 }
 
 const circuitBreaker = new CircuitBreaker();
@@ -81,6 +104,55 @@ const api = axios.create({
   baseURL: "/api",
   timeout: REQUEST_TIMEOUT_MS,
 });
+
+function getRequestOperation(config: InternalAxiosRequestConfig): string {
+  const method = config.method?.toUpperCase() ?? "GET";
+  const path = (config.url ?? "").split("?")[0].replace(/\/+$/, "") || "/";
+
+  if (path === "/products") {
+    return ({
+      GET: "products.list",
+      POST: "products.add",
+    } as Record<string, string>)[method] ?? "products.other";
+  }
+
+  if (/^\/products\/[^/]+$/.test(path)) {
+    return ({
+      GET: "products.get",
+      PUT: "products.update",
+      DELETE: "products.delete",
+    } as Record<string, string>)[method] ?? "products.other";
+  }
+
+  return "other";
+}
+
+function getErrorStatus(error: AxiosError): string {
+  if (error.code === "ERR_CIRCUIT_OPEN") return "circuit_open";
+  if (error.code === "ECONNABORTED") return "timeout";
+  if (!error.response) return "network_error";
+  return `${Math.floor(error.response.status / 100)}xx`;
+}
+
+function recordRequestMetric(
+  config: RetryableConfig | undefined,
+  result: "success" | "failure",
+  status: string,
+) {
+  if (!config) return;
+
+  const elapsedMilliseconds = Math.max(
+    0,
+    performance.now() - (config.__requestStartedAt ?? performance.now()),
+  );
+  recordBrowserApiRequestMetric({
+    durationSeconds: elapsedMilliseconds / 1_000,
+    method: config.method?.toUpperCase() ?? "GET",
+    operation: config.__requestOperation ?? getRequestOperation(config),
+    result,
+    status,
+  });
+}
 
 // Request interceptor: reject immediately when circuit is open
 api.interceptors.request.use((config) => {
@@ -93,6 +165,10 @@ api.interceptors.request.use((config) => {
       ),
     );
   }
+
+  const retryableConfig = config as RetryableConfig;
+  retryableConfig.__requestStartedAt = performance.now();
+  retryableConfig.__requestOperation = getRequestOperation(config);
   return config;
 });
 
@@ -100,11 +176,18 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => {
     circuitBreaker.recordSuccess();
+    recordRequestMetric(
+      response.config as RetryableConfig,
+      "success",
+      `${Math.floor(response.status / 100)}xx`,
+    );
     return response;
   },
   async (error: AxiosError) => {
     const config = error.config as RetryableConfig | undefined;
     if (!config) return Promise.reject(error);
+
+    recordRequestMetric(config, "failure", getErrorStatus(error));
 
     config.__retryCount ??= 0;
 

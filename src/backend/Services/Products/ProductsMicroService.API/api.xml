@@ -30,11 +30,12 @@
             </summary>
             <returns></returns>
         </member>
-        <member name="M:ProductsMicroService.API.Controllers.ProductsController.AddNewProductAsync(ProductsMicroservice.Core.DTO.ProductAddRequest)">
+        <member name="M:ProductsMicroService.API.Controllers.ProductsController.AddNewProductAsync(ProductsMicroservice.Core.DTO.ProductAddRequest,System.String)">
             <summary>
             add a new product
             </summary>
             <param name="productAddRequest"></param>
+            <param name="idempotencyKey">A canonical UUID v4 supplied by the client.</param>
             <returns></returns>
         </member>
         <member name="M:ProductsMicroService.API.Controllers.ProductsController.UpdateProductAsync(ProductsMicroservice.Core.DTO.ProductUpdateRequest)">
@@ -44,12 +45,25 @@
             <param name="productUpdateRequest"></param>
             <returns></returns>
         </member>
-        <member name="M:ProductsMicroService.API.Controllers.ProductsController.DeleteProductAsync(System.Nullable{System.Guid})">
+        <member name="M:ProductsMicroService.API.Controllers.ProductsController.DeleteProductAsync(System.Nullable{System.Guid},ProductsMicroservice.Core.DTO.ProductDeleteRequest)">
             <summary>
             delete a product by productId
             </summary>
             <param name="productId"></param>
+            <param name="request">Contains the version originally read by the client.</param>
             <returns></returns>
+        </member>
+        <member name="T:ProductsMicroService.API.Extensions.DatabaseMigrationExtensions">
+            <summary>
+            Database migration extensions for the Products API.
+            </summary>
+        </member>
+        <member name="M:ProductsMicroService.API.Extensions.DatabaseMigrationExtensions.MigrateDatabaseAsync(Microsoft.AspNetCore.Builder.WebApplication)">
+            <summary>
+            Applies pending database migrations and seeds development data.
+            </summary>
+            <param name="app">The Products API application.</param>
+            <returns>A task representing the asynchronous migration operation.</returns>
         </member>
         <member name="T:ProductsMicroService.API.Extensions.ObservabilityExtensions">
             <summary>
@@ -62,6 +76,28 @@
             </summary>
             <param name="builder"></param>
             <returns></returns>
+        </member>
+        <member name="T:ProductsMicroService.API.Health.ProductsDatabaseHealthCheck">
+            <summary>Checks whether the Products database accepts connections.</summary>
+            <param name="dbContext">The Products database context.</param>
+        </member>
+        <member name="M:ProductsMicroService.API.Health.ProductsDatabaseHealthCheck.#ctor(ProductsMicroservice.Infrastructure.DbContext.ApplicationDbContext)">
+            <summary>Checks whether the Products database accepts connections.</summary>
+            <param name="dbContext">The Products database context.</param>
+        </member>
+        <member name="M:ProductsMicroService.API.Health.ProductsDatabaseHealthCheck.CheckHealthAsync(Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckContext,System.Threading.CancellationToken)">
+            <inheritdoc />
+        </member>
+        <member name="T:ProductsMicroService.API.Health.ProductsRedisHealthCheck">
+            <summary>Checks whether Products Redis responds to commands.</summary>
+            <param name="connection">The shared Redis connection.</param>
+        </member>
+        <member name="M:ProductsMicroService.API.Health.ProductsRedisHealthCheck.#ctor(StackExchange.Redis.IConnectionMultiplexer)">
+            <summary>Checks whether Products Redis responds to commands.</summary>
+            <param name="connection">The shared Redis connection.</param>
+        </member>
+        <member name="M:ProductsMicroService.API.Health.ProductsRedisHealthCheck.CheckHealthAsync(Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckContext,System.Threading.CancellationToken)">
+            <inheritdoc />
         </member>
         <member name="T:ProductsMicroService.API.Middleware.ExceptionHandlingMiddleware">
             <summary>
@@ -92,6 +128,18 @@
             </summary>
             <param name="builder">applicationBuilder</param>
             <returns></returns>
+        </member>
+        <member name="T:ProductsMicroService.API.Security.HttpProductOperationContextAccessor">
+            <summary>
+            Reads only the gateway-authenticated headers. Product request bodies can never
+            select the notification recipient.
+            </summary>
+        </member>
+        <member name="M:ProductsMicroService.API.Security.HttpProductOperationContextAccessor.#ctor(Microsoft.AspNetCore.Http.IHttpContextAccessor)">
+            <summary>Creates an accessor for the current gateway-authenticated request.</summary>
+        </member>
+        <member name="M:ProductsMicroService.API.Security.HttpProductOperationContextAccessor.GetCurrent">
+            <summary>Returns trusted recipient and correlation metadata for an operation event.</summary>
         </member>
     </members>
 </doc>

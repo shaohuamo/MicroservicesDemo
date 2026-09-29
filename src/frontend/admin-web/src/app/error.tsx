@@ -18,7 +18,7 @@ export default function Error({
           {t("error.title")}
         </h2>
         <p className="text-sm text-red-600 dark:text-red-300 mb-4">
-          {error.message || t("error.unexpected")}
+          {t("error.unexpected")}
         </p>
         <button
           onClick={reset}

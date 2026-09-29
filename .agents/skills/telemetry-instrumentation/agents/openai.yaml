@@ -1,0 +1,4 @@
+interface:
+  display_name: "Telemetry Instrumentation"
+  short_description: "Use TelemetryDecorators for Products observability"
+  default_prompt: "Use $telemetry-instrumentation for ProductsMicroservice observability changes."

@@ -21,23 +21,23 @@
         "rabbitmq": "StartWithoutDebugging",
         "redis": "StartWithoutDebugging",
         "redis-exporter": "StartWithoutDebugging",
-        "test-microservice1": "StartDebugging"
+        "notificationsmicroservice.api": "StartDebugging"
       }
     },
     "Docker Compose Without Observability": {
       "commandName": "DockerCompose",
       "commandVersion": "1.0",
       "serviceActions": {
-        "productsmicroservice.api": "StartDebugging",
+        "productsmicroservice.api": "StartWithoutDebugging",
         "admin-web": "StartWithoutDebugging",
         "alertmanager": "DoNotStart",
-        "apigateway": "StartDebugging",
+        "apigateway": "StartWithoutDebugging",
         "consul": "StartWithoutDebugging",
         "grafana": "DoNotStart",
         "identityserver": "StartDebugging",
-        "jaeger": "DoNotStart",
+        "jaeger": "StartWithoutDebugging",
         "loki": "DoNotStart",
-        "otel-collector": "DoNotStart",
+        "otel-collector": "StartWithoutDebugging",
         "postgres": "StartWithoutDebugging",
         "postgres-exporter": "DoNotStart",
         "prometheus": "DoNotStart",
@@ -45,7 +45,7 @@
         "rabbitmq": "StartWithoutDebugging",
         "redis": "StartWithoutDebugging",
         "redis-exporter": "DoNotStart",
-        "test-microservice1": "StartDebugging"
+        "notificationsmicroservice.api": "StartWithoutDebugging"
       }
     }
   }

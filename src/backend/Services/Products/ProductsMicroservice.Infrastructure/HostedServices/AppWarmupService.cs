@@ -4,18 +4,12 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using CommonService.Health;
-using CommonService.RabbitMQ;
-using CommonService.ServiceBus;
-using Microsoft.Extensions.Configuration;
 using ProductsMicroservice.Core.CacheKeys;
 using ProductsMicroservice.Core.Diagnostics;
 using ProductsMicroservice.Core.DTO;
-using ProductsMicroservice.Core.MessageQueue.Abstractions;
 using ProductsMicroservice.Core.Services;
 using ProductsMicroservice.Infrastructure.DbContext;
 using ProductsMicroservice.Infrastructure.Options;
-using RabbitMQ.Client;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Text.Json;
@@ -27,9 +21,6 @@ namespace ProductsMicroservice.Infrastructure.HostedServices
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly ILogger<AppWarmupService> _logger;
         private readonly CacheOptions _cacheOptions;
-        private readonly IConfiguration _configuration;
-        private readonly ServiceBusOptions _serviceBusOptions;
-        private readonly IStartupReadinessState _readinessState;
         private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
         //Telemetry
@@ -44,17 +35,11 @@ namespace ProductsMicroservice.Infrastructure.HostedServices
         public AppWarmupService(
             IServiceScopeFactory scopeFactory,
             ILogger<AppWarmupService> logger,
-            IOptions<CacheOptions> cacheOptions,
-            IConfiguration configuration,
-            IOptions<ServiceBusOptions> serviceBusOptions,
-            IStartupReadinessState readinessState)
+            IOptions<CacheOptions> cacheOptions)
         {
             _scopeFactory = scopeFactory;
             _logger = logger;
             _cacheOptions = cacheOptions.Value;
-            _configuration = configuration;
-            _serviceBusOptions = serviceBusOptions.Value;
-            _readinessState = readinessState;
         }
 
         protected override async Task ExecuteAsync(CancellationToken ct)
@@ -69,12 +54,31 @@ namespace ProductsMicroservice.Infrastructure.HostedServices
             string status = "success";
             try
             {
-                await PreheatDatabaseUntilReadyAsync(ct);
-                await PreheatCacheAsync(ct);
-                await PreheatMessageBrokersUntilReadyAsync(ct);
+                try
+                {
+                    await PreheatDatabaseAsync(ct);
+                }
+                catch (Exception ex) when (!ct.IsCancellationRequested)
+                {
+                    status = "error";
+                    activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+                    _logger.LogWarning(ex, "Database performance warmup failed.");
+                }
+
+                try
+                {
+                    await PreheatCacheAsync(ct);
+                }
+                catch (Exception ex) when (!ct.IsCancellationRequested)
+                {
+                    status = "error";
+                    activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+                    _logger.LogWarning(ex, "Cache performance warmup failed.");
+                }
 
                 sw.Stop();
-                _logger.LogInformation("GlobalWarmup successful, Total Elapsed: {Elapsed}ms", sw.ElapsedMilliseconds);
+                _logger.LogInformation("GlobalWarmup completed with status {Status}, Total Elapsed: {Elapsed}ms",
+                    status, sw.ElapsedMilliseconds);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -97,36 +101,6 @@ namespace ProductsMicroservice.Infrastructure.HostedServices
             }
         }
 
-        private async Task PreheatDatabaseUntilReadyAsync(CancellationToken ct)
-        {
-            var attempt = 0;
-
-            while (!ct.IsCancellationRequested)
-            {
-                try
-                {
-                    attempt++;
-                    await PreheatDatabaseAsync(ct);
-                    _readinessState.MarkReady("Products database warmup completed.");
-                    return;
-                }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _readinessState.MarkNotReady("Products database warmup is still retrying.");
-                    var delay = CalculateRetryDelay(attempt);
-                    _logger.LogWarning(ex,
-                        "Database warmup attempt {Attempt} failed. Retrying in {DelaySeconds:n1}s.",
-                        attempt,
-                        delay.TotalSeconds);
-                    await Task.Delay(delay, ct);
-                }
-            }
-        }
-
         private async Task PreheatDatabaseAsync(CancellationToken ct)
         {
             using var activity = ActivitySource.StartActivity("DatabaseWarmup");
@@ -139,17 +113,15 @@ namespace ProductsMicroservice.Infrastructure.HostedServices
                 using var scope = _scopeFactory.CreateScope();
                 var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-                // 010-000: check connection
-                if (!await dbContext.Database.CanConnectAsync(ct))
-                {
-                    throw new InvalidOperationException("Can not connect to Database, Warmup failed");
-                }
-
-                // 020-000: trigger EF Core model cache initialization
+                // Trigger EF Core model cache initialization.
                 _ = await dbContext.Products.AsNoTracking().AnyAsync(ct);
 
                 sw.Stop();
                 _logger.LogInformation("Database Warmup successful , Elapsed: {Elapsed}ms", sw.ElapsedMilliseconds);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception e)
             {
@@ -164,16 +136,16 @@ namespace ProductsMicroservice.Infrastructure.HostedServices
         private async Task PreheatCacheAsync(CancellationToken ct)
         {
             using var activity = ActivitySource.StartActivity("CacheWarmup");
-            using var scope = _scopeFactory.CreateScope();
             var sw = Stopwatch.StartNew();
-
-            var productsGetterService = scope.ServiceProvider.GetRequiredService<ProductsGetterService>();
-            var cache = scope.ServiceProvider.GetRequiredService<IDistributedCache>();
 
             _logger.LogInformation("Products Cache Starting: {Key}", ProductCacheKeys.AllProductsKey);
 
             try
             {
+                using var scope = _scopeFactory.CreateScope();
+                var productsGetterService = scope.ServiceProvider.GetRequiredService<ProductsGetterService>();
+                var cache = scope.ServiceProvider.GetRequiredService<IDistributedCache>();
+
                 // 010-000：check cache is existed or not
                 var existingJson = await cache.GetStringAsync(ProductCacheKeys.AllProductsKey, ct);
                 if (existingJson != null)
@@ -222,148 +194,19 @@ namespace ProductsMicroservice.Infrastructure.HostedServices
                 _logger.LogInformation("Products cache successful, Elapsed: {Elapsed}ms，contains {Count} rows data。",
                     sw.ElapsedMilliseconds, dataList.Count);
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 sw.Stop();
                 _logger.LogError(ex, "Error occur during cache warmup: {Key}, Elapsed: {Elapsed}ms",
                     sw.ElapsedMilliseconds, ProductCacheKeys.AllProductsKey);
                 activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-            }
-        }
-
-        private async Task PreheatMessageBrokersUntilReadyAsync(CancellationToken ct)
-        {
-            var attempt = 0;
-
-            while (!ct.IsCancellationRequested)
-            {
-                try
-                {
-                    attempt++;
-                    await PreheatMessageBrokersAsync(ct);
-                    return;
-                }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    var delay = CalculateRetryDelay(attempt);
-                    _logger.LogWarning(ex,
-                        "Message brokers warmup attempt {Attempt} failed. Retrying in {DelaySeconds:n1}s.",
-                        attempt,
-                        delay.TotalSeconds);
-                    await Task.Delay(delay, ct);
-                }
-            }
-        }
-
-        private async Task PreheatMessageBrokersAsync(CancellationToken ct)
-        {
-            using var activity = ActivitySource.StartActivity("MessageBrokersWarmup");
-            var sw = Stopwatch.StartNew();
-
-            _logger.LogInformation("Message brokers warmup starting...");
-
-            try
-            {
-                await PreheatRabbitMQAsync(ct);
-                await PreheatAzureServiceBusAsync(ct);
-
-                sw.Stop();
-                _logger.LogInformation("Message brokers warmup successful, Elapsed: {Elapsed}ms",
-                    sw.ElapsedMilliseconds);
-            }
-            catch (Exception ex)
-            {
-                sw.Stop();
-                activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-                _logger.LogError(ex, "Error occur during message brokers warmup, Elapsed: {Elapsed}ms",
-                    sw.ElapsedMilliseconds);
-
                 throw;
             }
         }
 
-        private async Task PreheatRabbitMQAsync(CancellationToken ct)
-        {
-            using var activity = ActivitySource.StartActivity("RabbitMQWarmup");
-            var sw = Stopwatch.StartNew();
-            string exchangeName = _configuration["RabbitMQ_Products_Exchange"]!;
-
-            _logger.LogInformation("RabbitMQ warmup starting for exchange {Exchange}", exchangeName);
-
-            try
-            {
-                if (string.IsNullOrWhiteSpace(exchangeName))
-                {
-                    throw new InvalidOperationException("RabbitMQ_Products_Exchange must be configured.");
-                }
-
-                using var scope = _scopeFactory.CreateScope();
-                var connectionProvider = scope.ServiceProvider.GetRequiredService<IRabbitMQConnectionProvider>();
-
-                var connection = await connectionProvider.GetConnectionAsync();
-                await using var channel = await connection.CreateChannelAsync(cancellationToken: ct);
-
-                await channel.ExchangeDeclareAsync(
-                    exchange: exchangeName,
-                    type: ExchangeType.Direct,
-                    durable: true,
-                    cancellationToken: ct);
-
-                sw.Stop();
-                _logger.LogInformation("RabbitMQ warmup successful for exchange {Exchange}, Elapsed: {Elapsed}ms",
-                    exchangeName, sw.ElapsedMilliseconds);
-            }
-            catch (Exception ex)
-            {
-                sw.Stop();
-                activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-                _logger.LogError(ex, "Error occur during RabbitMQ warmup for exchange {Exchange}, Elapsed: {Elapsed}ms",
-                    exchangeName, sw.ElapsedMilliseconds);
-
-                throw;
-            }
-        }
-
-        private async Task PreheatAzureServiceBusAsync(CancellationToken ct)
-        {
-            using var activity = ActivitySource.StartActivity("AzureServiceBusWarmup");
-            var sw = Stopwatch.StartNew();
-
-            _logger.LogInformation("Azure Service Bus warmup starting for topic {Topic}",
-                _serviceBusOptions.ProductsUpdatesTopic);
-
-            try
-            {
-                using var scope = _scopeFactory.CreateScope();
-                var publisherWarmup = scope.ServiceProvider.GetRequiredService<IProductUpdateMessagePublisherWarmup>();
-
-                await publisherWarmup.WarmupAsync(ct);
-
-                sw.Stop();
-                _logger.LogInformation("Azure Service Bus warmup successful for topic {Topic}, Elapsed: {Elapsed}ms",
-                    _serviceBusOptions.ProductsUpdatesTopic, sw.ElapsedMilliseconds);
-            }
-            catch (Exception ex)
-            {
-                sw.Stop();
-                activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-                _logger.LogError(ex, "Error occur during Azure Service Bus warmup for topic {Topic}, Elapsed: {Elapsed}ms",
-                    _serviceBusOptions.ProductsUpdatesTopic, sw.ElapsedMilliseconds);
-
-                throw;
-            }
-        }
-
-        private static TimeSpan CalculateRetryDelay(int attempt)
-        {
-            var exponentialSeconds = Math.Min(Math.Pow(2, Math.Max(attempt - 1, 0)), 30);
-            var jitterSeconds = Random.Shared.NextDouble();
-
-            return TimeSpan.FromSeconds(exponentialSeconds + jitterSeconds);
-        }
     }
 }

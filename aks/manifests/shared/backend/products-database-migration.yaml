@@ -1,0 +1,63 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: products-database-migration
+  labels:
+    app: products-database-migration
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: products-database-migration
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: products-database-migration
+        image: microservicesdemoregistry.azurecr.io/products-microservice:$(tag)
+        args: ["--migrate"]
+        env:
+        - name: ASPNETCORE_ENVIRONMENT
+          value: Production
+        - name: POSTGRES__HOST
+          valueFrom:
+            secretKeyRef:
+              name: products-secrets
+              key: postgres-host
+        - name: POSTGRES__PORT
+          value: "5432"
+        - name: POSTGRES__DATABASE
+          value: productsdatabase
+        - name: POSTGRES__USER
+          valueFrom:
+            secretKeyRef:
+              name: products-secrets
+              key: postgres-user
+        - name: POSTGRES__PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: products-secrets
+              key: postgres-password
+        - name: POSTGRES__MaxRetryCount
+          value: "5"
+        - name: POSTGRES__MaxRetryDelaySeconds
+          value: "10"
+        - name: Redis__ConnectionString
+          valueFrom:
+            secretKeyRef:
+              name: products-secrets
+              key: redis-connection-string
+        - name: Redis__ConnectRetry
+          value: "5"
+        - name: Redis__ConnectTimeout
+          value: "5000"
+        - name: Redis__SyncTimeout
+          value: "5000"
+        - name: Redis__MaxReconnectDelay
+          value: "5000"
+        - name: Redis__InitialReconnectDelay
+          value: "1000"
+        - name: Redis__AbortOnConnectFail
+          value: "false"

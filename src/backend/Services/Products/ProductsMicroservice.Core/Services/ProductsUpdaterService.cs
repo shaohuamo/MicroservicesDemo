@@ -1,62 +1,83 @@
-﻿using AutoMapper;
+using AutoMapper;
+using CommonService.Messages;
 using Microsoft.Extensions.Logging;
 using ProductsMicroservice.Core.Domain.Entities;
+using ProductsMicroservice.Core.Domain.Exceptions;
+using ProductsMicroservice.Core.Domain.Services;
 using ProductsMicroservice.Core.Domain.RepositoryContracts;
 using ProductsMicroservice.Core.DTO;
-using ProductsMicroservice.Core.MessageQueue.Abstractions;
-using ProductsMicroservice.Core.MessageQueue.Messages;
+using ProductsMicroservice.Core.Messaging;
+using ProductsMicroservice.Core.Messaging.OutboxWriterContracts;
 using ProductsMicroservice.Core.ServiceContracts;
 
 namespace ProductsMicroservice.Core.Services;
 
-public class ProductsUpdaterService: IProductsUpdaterService
+public class ProductsUpdaterService : IProductsUpdaterService
 {
     private readonly IMapper _mapper;
     private readonly IProductsRepository _productsRepository;
-    private readonly IProductUpdateMessagePublisher _productUpdateMessagePublisher;
+    private readonly IProductOperationOutboxWriter _outboxWriter;
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly IProductOperationContextAccessor _operationContextAccessor;
     private readonly ILogger<ProductsUpdaterService> _logger;
 
     public ProductsUpdaterService(
         IProductsRepository productsRepository,
         IMapper mapper,
-        IProductUpdateMessagePublisher productUpdateMessagePublisher,
+        IProductOperationOutboxWriter outboxWriter,
+        IUnitOfWork unitOfWork,
+        IProductOperationContextAccessor operationContextAccessor,
         ILogger<ProductsUpdaterService> logger)
     {
         _productsRepository = productsRepository;
         _mapper = mapper;
-        _productUpdateMessagePublisher = productUpdateMessagePublisher;
+        _outboxWriter = outboxWriter;
+        _unitOfWork = unitOfWork;
+        _operationContextAccessor = operationContextAccessor;
         _logger = logger;
     }
 
-    public async Task<ProductResponse?> UpdateProductAsync(ProductUpdateRequest productUpdateRequest)
+    public async Task<ProductResponse> UpdateProductAsync(ProductUpdateRequest productUpdateRequest)
     {
-        ArgumentNullException.ThrowIfNull(productUpdateRequest);//defend against null input
+        ArgumentNullException.ThrowIfNull(productUpdateRequest);
 
-        _logger.LogInformation("Updating product: {ProductId}", productUpdateRequest.ProductId);
-
+        Guid notificationId = Guid.CreateVersion7();
+        ProductOperationContext operationContext = _operationContextAccessor.GetCurrent();
         Product product = _mapper.Map<Product>(productUpdateRequest);
+        ProductNames names = ProductNameNormalizer.Normalize(product.DisplayName);
+        product.DisplayName = names.DisplayName;
+        product.ProductName = names.ProductName;
 
-        //update the product
-        Product? updatedProduct = await _productsRepository.UpdateProductAsync(product);
-
-        if (updatedProduct == null)
+        Product? currentProduct = await _productsRepository.GetProductByProductIdAsync(product.ProductId);
+        if (currentProduct is null)
         {
-            _logger.LogWarning("Product update returned null from repository for {ProductId}",
-                productUpdateRequest.ProductId);
-            return null;
+            throw new ProductNotFoundException(product.ProductId);
         }
 
-        var productUpdatedMessage = new ProductUpdatedMessage(
-            updatedProduct.ProductId,
-            updatedProduct.ProductName,
-            updatedProduct.UnitPrice,
-            updatedProduct.QuantityInStock,
-            updatedProduct.Version);
+        if (currentProduct.Version != product.Version)
+        {
+            throw new ProductConcurrencyException(product.ProductId);
+        }
 
-        await _productUpdateMessagePublisher.PublishAsync(productUpdatedMessage);
+        if (await _productsRepository.ProductNameExistsAsync(
+                product.ProductName, product.ProductId))
+        {
+            throw new ProductAlreadyExistsException(product.DisplayName);
+        }
 
-        _logger.LogInformation("Product updated event published successfully for {ProductId}",
-            updatedProduct.ProductId);
+        Product? updatedProduct = await _productsRepository.UpdateProductAsync(product);
+        if (updatedProduct is null)
+        {
+            throw new ProductNotFoundException(product.ProductId);
+        }
+
+        ProductOperationResultMessage message = ProductOperationResultMessageFactory.Create(
+            notificationId, operationContext, ProductOperation.Update,
+            ProductOperationStatus.Success, updatedProduct.ProductId,
+            updatedProduct.DisplayName, updatedProduct.Version);
+
+        await _outboxWriter.WriteAsync(message);
+        await _unitOfWork.SaveChangesAsync();
 
         return _mapper.Map<ProductResponse>(updatedProduct);
     }

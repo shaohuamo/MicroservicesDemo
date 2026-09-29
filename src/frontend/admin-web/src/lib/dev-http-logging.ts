@@ -1,8 +1,12 @@
 const DEVELOPMENT_ENVIRONMENT_NAMES = new Set(["development", "dev"]);
 
 export function isDevelopmentHttpLoggingEnabled() {
-  return [process.env.APP_ENV, process.env.NODE_ENV]
-    .some((value) => value && DEVELOPMENT_ENVIRONMENT_NAMES.has(value.toLowerCase()));
+  const appEnvironment = process.env.APP_ENV?.toLowerCase();
+  if (appEnvironment) {
+    return DEVELOPMENT_ENVIRONMENT_NAMES.has(appEnvironment);
+  }
+
+  return process.env.NODE_ENV?.toLowerCase() === "development";
 }
 
 export function logDevelopmentHttp(message: string, data: Record<string, unknown>) {
@@ -22,7 +26,11 @@ export function getHeadersForLog(headers: HeadersInit | undefined) {
 }
 
 export function getRequestHeadersForLog(headers: Headers) {
-  return Object.fromEntries(headers.entries());
+  const safeHeaders = new Headers(headers);
+  if (safeHeaders.has("idempotency-key")) {
+    safeHeaders.set("idempotency-key", "[REDACTED]");
+  }
+  return Object.fromEntries(safeHeaders.entries());
 }
 
 export function getBodyForLog(body: BodyInit | null | undefined) {

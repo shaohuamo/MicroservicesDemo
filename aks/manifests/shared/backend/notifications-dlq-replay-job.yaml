@@ -1,0 +1,45 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: notifications-dlq-replay-
+  labels:
+    app: notifications-dlq-replay
+spec:
+  parallelism: 1
+  completions: 1
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: notifications-dlq-replay
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: replay
+          image: microservicesdemoregistry.azurecr.io/notifications-dlq-replay:__IMAGE_TAG__
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RabbitMQ__HostName
+              valueFrom:
+                secretKeyRef:
+                  name: notifications-microservice-secrets
+                  key: rabbitmq-host
+            - name: RabbitMQ__UserName
+              valueFrom:
+                secretKeyRef:
+                  name: notifications-microservice-secrets
+                  key: rabbitmq-user
+            - name: RabbitMQ__Password
+              valueFrom:
+                secretKeyRef:
+                  name: notifications-microservice-secrets
+                  key: rabbitmq-password
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi

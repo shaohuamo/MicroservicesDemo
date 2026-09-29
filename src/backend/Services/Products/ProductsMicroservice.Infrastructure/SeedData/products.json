@@ -1,0 +1,86 @@
+[
+  {
+    "productId": "1a9df78b-3f46-4c3d-9f2a-1b9f69292a77",
+    "displayName": "Apple iPhone 15 Pro Max",
+    "unitPrice": 1299.99,
+    "quantityInStock": 50,
+    "version": 1
+  },
+  {
+    "productId": "2c8e8e7c-97a3-4b11-9a1b-4dbe681cfe17",
+    "displayName": "Samsung Foldable Smart Phone 2",
+    "unitPrice": 1499.99,
+    "quantityInStock": 100,
+    "version": 1
+  },
+  {
+    "productId": "3f3e8b3a-4a50-4cd0-8d8e-1e178ae2cfc1",
+    "displayName": "Ergonomic Office Chair",
+    "unitPrice": 249.99,
+    "quantityInStock": 25,
+    "version": 1
+  },
+  {
+    "productId": "4c9b6f71-6c5d-485f-8db2-58011a236b63",
+    "displayName": "Coffee Table with Storage",
+    "unitPrice": 179.99,
+    "quantityInStock": 30,
+    "version": 1
+  },
+  {
+    "productId": "5d7e36bf-65c3-4a71-bf97-740d561d8b65",
+    "displayName": "Samsung QLED 75 inch",
+    "unitPrice": 1999.99,
+    "quantityInStock": 20,
+    "version": 1
+  },
+  {
+    "productId": "6a14f510-72c1-42c8-9a5a-8ef8f3f45a0d",
+    "displayName": "Running Shoes",
+    "unitPrice": 49.99,
+    "quantityInStock": 75,
+    "version": 1
+  },
+  {
+    "productId": "7b39ef14-932b-4c84-9187-55b748d2b28f",
+    "displayName": "Anti-Theft Laptop Backpack",
+    "unitPrice": 59.99,
+    "quantityInStock": 60,
+    "version": 1
+  },
+  {
+    "productId": "8c5e6b73-68fc-49d9-99b4-aecc3706a4f4",
+    "displayName": "LG OLED 65 inch",
+    "unitPrice": 1499.99,
+    "quantityInStock": 15,
+    "version": 1
+  },
+  {
+    "productId": "9e7e7085-6f4e-4921-8f15-c59f084080f9",
+    "displayName": "Modern Dining Table",
+    "unitPrice": 699.99,
+    "quantityInStock": 10,
+    "version": 1
+  },
+  {
+    "productId": "10d7b110-ecdb-4921-85a4-58a5d1b32bf4",
+    "displayName": "PlayStation 5",
+    "unitPrice": 499.99,
+    "quantityInStock": 40,
+    "version": 1
+  },
+  {
+    "productId": "11f2e86a-9d5d-42f9-b3c2-3e4d652e3df8",
+    "displayName": "Executive Office Desk",
+    "unitPrice": 299.99,
+    "quantityInStock": 18,
+    "version": 1
+  },
+  {
+    "productId": "12b369b7-9101-41b1-a653-6c6c9a4fe1e4",
+    "displayName": "Breville Smart Blender",
+    "unitPrice": 129.99,
+    "quantityInStock": 50,
+    "version": 1
+  }
+]

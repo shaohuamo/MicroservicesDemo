@@ -1,35 +1,23 @@
-﻿using CommonService.RabbitMQ;
-using CommonService.ServiceBus;
-using Medallion.Threading;
-using Medallion.Threading.Redis;
-using Microsoft.EntityFrameworkCore;
+using CommonService.RabbitMQ;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Options;
-using ProductsMicroservice.Core.Domain.RepositoryContracts;
-using ProductsMicroservice.Core.ExternalServices.Abstractions;
-using ProductsMicroservice.Core.HttpClients;
-using ProductsMicroservice.Core.MessageQueue.Abstractions;
-using ProductsMicroservice.Core.Policies;
-using ProductsMicroservice.Core.RabbitMQ;
+using ProductsMicroservice.Core.Messaging.OutboxWriterContracts;
 using ProductsMicroservice.Core.ServiceContracts;
 using ProductsMicroservice.Core.Services;
-using ProductsMicroservice.Infrastructure.DbContext;
+using ProductsMicroservice.Infrastructure.Extensions;
 using ProductsMicroservice.Infrastructure.Decorators.Caching;
 using ProductsMicroservice.Infrastructure.Decorators.Observability;
 using ProductsMicroservice.Infrastructure.HostedServices;
 using ProductsMicroservice.Infrastructure.Messaging;
 using ProductsMicroservice.Infrastructure.Options;
-using ProductsMicroservice.Infrastructure.Repositories;
-using StackExchange.Redis;
+using ProductsMicroservice.Infrastructure.Messaging.Outbox;
 
 namespace ProductsMicroservice.Infrastructure
 {
     public static class DependencyInjection
     {
         //Add ProductsMicroservice.Infrastructure Layer services into the IoC container
-        public static IServiceCollection ProductsMicroserviceInfrastructure(this IServiceCollection services, 
+        public static IServiceCollection ProductsMicroserviceInfrastructure(this IServiceCollection services,
             IConfiguration configuration)
         {
             //decorate service
@@ -46,89 +34,25 @@ namespace ProductsMicroservice.Infrastructure
             services.Decorate<IProductsGetterService, ProductsGetterCachingDecorator>();
             services.Decorate<IProductsGetterService, ProductsGetterTelemetryDecorator>();
 
-            // Register PostgresOptions
-            services.Configure<PostgresOptions>(configuration.GetSection("POSTGRES"));
+            services.AddProductsDatabase(configuration);
+            services.AddProductsRedis(configuration);
 
-            services.AddDbContext<ApplicationDbContext>((serviceProvider, options) =>
-            {
-                var env = serviceProvider.GetRequiredService<IHostEnvironment>();
-                var postgresOptions = serviceProvider.GetRequiredService<IOptions<PostgresOptions>>().Value;
-
-                string connectionStringTemplate = configuration.GetConnectionString("PostgresConnection")!;
-                string connectionString = connectionStringTemplate
-                    .Replace("$POSTGRES_HOST", postgresOptions.Host)
-                    .Replace("$POSTGRES_PASSWORD", postgresOptions.Password)
-                    .Replace("$POSTGRES_DATABASE", postgresOptions.Database)
-                    .Replace("$POSTGRES_PORT", postgresOptions.Port)
-                    .Replace("$POSTGRES_USER", postgresOptions.User);
-
-                options.UseNpgsql(connectionString, npgsqlOptions =>
-                {
-                    npgsqlOptions .EnableRetryOnFailure(
-                        maxRetryCount: postgresOptions.MaxRetryCount,
-                        maxRetryDelay: TimeSpan.FromSeconds(postgresOptions.MaxRetryDelaySeconds),
-                        errorCodesToAdd: null
-                    );
-                });
-
-                if (env.IsDevelopment())
-                {
-                    options.EnableSensitiveDataLogging();
-                    options.EnableDetailedErrors();
-                }
-            });
-
-            services.AddScoped<IProductsRepository, ProductsRepository>();
-            services.AddSingleton<IProductMessagePublisher, RabbitMQProductAddProductAddPublisher>();
-            services.AddSingleton<AzureServiceBusProductUpdatePublisher>();
-            services.AddSingleton<IProductUpdateMessagePublisher>(serviceProvider =>
-                serviceProvider.GetRequiredService<AzureServiceBusProductUpdatePublisher>());
-            services.AddSingleton<IProductUpdateMessagePublisherWarmup>(serviceProvider =>
-                serviceProvider.GetRequiredService<AzureServiceBusProductUpdatePublisher>());
-
-            services.AddHttpClient<ITestMicroserviceClient, TestMicroserviceClient>(client =>
-            {
-                client.BaseAddress = new Uri($"http://{configuration["TestMicroserviceName"]}:{configuration["TestMicroservicePort"]}");
-            })
-            //.AddPolicyHandler(
-            //    services.BuildServiceProvider().GetRequiredService<ITestMicroservicePolicies>().GetCombinedPolicy())
-            ;
-
-            services.AddSingleton<ITestMicroservicePolicies, TestMicroservicePolicies>();
-
-            services.AddSingleton<IRabbitMQConnectionProvider, RabbitMQConnectionProvider>();
             services.Configure<RabbitMQOptions>(configuration.GetSection("RabbitMQ"));
-            services.Configure<ServiceBusOptions>(configuration.GetSection(ServiceBusOptions.SectionName));
+            services.Configure<ProductOperationOutboxOptions>(
+                configuration.GetSection(ProductOperationOutboxOptions.SectionName));
+            services.Configure<ProductOperationMessagingOptions>(
+                configuration.GetSection(ProductOperationMessagingOptions.SectionName));
 
-            var redisOptions = configuration.GetSection(RedisOptions.SectionName).Get<RedisOptions>() ?? new RedisOptions();
+            services.AddScoped<IProductOperationOutboxWriter, ProductOperationOutboxWriter>();
 
-            var redisConfig = ConfigurationOptions.Parse(redisOptions.ConnectionString);
-            redisConfig.ConnectRetry = redisOptions.ConnectRetry;
-            redisConfig.ConnectTimeout = redisOptions.ConnectTimeout;
-            redisConfig.SyncTimeout = redisOptions.SyncTimeout;
-            redisConfig.AbortOnConnectFail = redisOptions.AbortOnConnectFail;
-            redisConfig.ReconnectRetryPolicy = new ExponentialRetry(
-                redisOptions.InitialReconnectDelay,
-                redisOptions.MaxReconnectDelay
-            );
-
-            var connectionMultiplexer = ConnectionMultiplexer.Connect(redisConfig);
-            services.AddSingleton<IConnectionMultiplexer>(connectionMultiplexer);
-            services.AddStackExchangeRedisCache(options =>
-            {
-                options.ConnectionMultiplexerFactory = () => Task.FromResult<IConnectionMultiplexer>(connectionMultiplexer);
-                options.InstanceName = redisOptions.InstanceName;
-            });
-
-            services.AddSingleton<IDistributedLockProvider>(_ =>
-            {
-                var database = connectionMultiplexer.GetDatabase();
-                return new RedisDistributedSynchronizationProvider(database);
-            });
-
-            services.Configure<CacheOptions>(configuration.GetSection(RedisOptions.SectionName));
+            services.AddSingleton<IProductOperationOutboxStore, ProductOperationOutboxStore>();
+            services.AddSingleton<IRabbitMQConnectionProvider, RabbitMQConnectionProvider>();
+            services.AddSingleton<ProductOperationRabbitMqPublisher>();
+            services.AddHostedService<ProductOperationOutboxDispatcher>();
+            services.AddHostedService<IdempotencyCleanupWorker>();
 
             services.AddHostedService<AppWarmupService>();
+
             return services;
         }
     }

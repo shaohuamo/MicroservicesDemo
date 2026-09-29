@@ -1,0 +1,49 @@
+trigger: none
+pr: none
+
+parameters:
+- name: targetEnvironment
+  displayName: Target environment
+  type: string
+  default: dev
+  values:
+  - dev
+  - qa
+  - uat
+  - staging
+  - prod
+variables:
+- ${{ if eq(parameters.targetEnvironment, 'dev') }}:
+  - name: k8sServiceConnection
+    value: dev-microservicesdemo-aks-cluster-dev-1778160743494
+- ${{ if eq(parameters.targetEnvironment, 'qa') }}:
+  - name: k8sServiceConnection
+    value: qa-microservicesdemo-aks-cluster-qa-1778160953610
+- ${{ if eq(parameters.targetEnvironment, 'uat') }}:
+  - name: k8sServiceConnection
+    value: uat-microservicesdemo-aks-cluster-uat-1778161095509
+- ${{ if eq(parameters.targetEnvironment, 'staging') }}:
+  - name: k8sServiceConnection
+    value: staging-microservicesdemo-aks-cluster-staging-1778161154539
+- ${{ if eq(parameters.targetEnvironment, 'prod') }}:
+  - name: k8sServiceConnection
+    value: prod-microservicesdemo-aks-cluster-prod-1778161221255
+
+stages:
+- stage: ReplayDlq
+  displayName: Replay Notifications dead letters
+  jobs:
+  - deployment: RunReplayJob
+    displayName: Run one-time replay Job
+    environment: ${{ parameters.targetEnvironment }}
+    pool:
+      vmImage: ubuntu-latest
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
+          - template: templates/notifications-dlq-replay-steps.yaml
+            parameters:
+              namespace: ${{ parameters.targetEnvironment }}
+              kubernetesServiceConnection: $(k8sServiceConnection)

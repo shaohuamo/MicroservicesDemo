@@ -1,0 +1,90 @@
+parameters:
+- name: namespace
+  type: string
+- name: kubernetesServiceConnection
+  type: string
+
+steps:
+- pwsh: |
+    $ErrorActionPreference = 'Stop'
+    if ($env:BUILD_SOURCEBRANCH -ne "refs/heads/${{ parameters.namespace }}") {
+      throw 'Select the source branch matching the target environment.'
+    }
+    if ([string]::IsNullOrWhiteSpace($env:SYSTEM_ACCESSTOKEN)) {
+      throw 'System.AccessToken is unavailable to query Notifications pipeline runs.'
+    }
+
+    $baseUrl = "$($env:SYSTEM_TEAMFOUNDATIONCOLLECTIONURI)$($env:SYSTEM_TEAMPROJECTID)/_apis/build"
+    $headers = @{ Authorization = "Bearer $env:SYSTEM_ACCESSTOKEN" }
+    $pipelineName = 'NotificationsMicroservice'
+    $definitionUrl = "$baseUrl/definitions?name=$([Uri]::EscapeDataString($pipelineName))&api-version=7.1"
+    $definitions = Invoke-RestMethod -Uri $definitionUrl -Headers $headers
+    $matchingDefinitions = @($definitions.value | Where-Object { $_.name -eq $pipelineName })
+    if ($matchingDefinitions.Count -ne 1) {
+      throw "Expected exactly one Azure DevOps pipeline named '$pipelineName'; found $($matchingDefinitions.Count)."
+    }
+
+    $branch = "refs/heads/${{ parameters.namespace }}"
+    $buildsUrl = "$baseUrl/builds?definitions=$($matchingDefinitions[0].id)&branchName=$([Uri]::EscapeDataString($branch))&statusFilter=completed&resultFilter=succeeded&queryOrder=finishTimeDescending&%24top=1&api-version=7.1"
+    $builds = Invoke-RestMethod -Uri $buildsUrl -Headers $headers
+    $build = @($builds.value) | Select-Object -First 1
+    if ($null -eq $build -or $build.sourceBranch -ne $branch -or $build.id -notmatch '^[0-9]+$') {
+      throw "No successful Notifications build was found for $branch."
+    }
+    $imageTag = [string]$build.id
+    Write-Host "Using Notifications replay image tag $imageTag from $branch."
+
+    $jobName = "notifications-dlq-replay-$(Build.BuildId)-$(System.StageAttempt)"
+    $source = 'aks/manifests/shared/backend/notifications-dlq-replay-job.yaml'
+    $target = "$(Pipeline.Workspace)/notifications-dlq-replay-${{ parameters.namespace }}.yaml"
+    $manifest = Get-Content -LiteralPath $source -Raw
+    $oldName = '  generateName: notifications-dlq-replay-'
+    if (-not $manifest.Contains($oldName) -or -not $manifest.Contains('__IMAGE_TAG__')) {
+      throw "Job template is missing its name or image tag placeholder: $source"
+    }
+    $manifest = $manifest.Replace($oldName, "  name: $jobName")
+    $manifest = $manifest.Replace('__IMAGE_TAG__', $imageTag)
+    Set-Content -LiteralPath $target -Value $manifest
+  displayName: Resolve replay image and render Job
+  env:
+    SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+
+- task: Kubernetes@1
+  displayName: Create Notifications DLQ replay Job
+  inputs:
+    connectionType: Kubernetes Service Connection
+    kubernetesServiceEndpoint: ${{ parameters.kubernetesServiceConnection }}
+    namespace: ${{ parameters.namespace }}
+    command: create
+    arguments: -f $(Pipeline.Workspace)/notifications-dlq-replay-${{ parameters.namespace }}.yaml
+
+- task: Kubernetes@1
+  displayName: Wait for Notifications DLQ replay Job
+  inputs:
+    connectionType: Kubernetes Service Connection
+    kubernetesServiceEndpoint: ${{ parameters.kubernetesServiceConnection }}
+    namespace: ${{ parameters.namespace }}
+    command: wait
+    arguments: --for=condition=complete job/notifications-dlq-replay-$(Build.BuildId)-$(System.StageAttempt) --timeout=240s
+
+- task: Kubernetes@1
+  displayName: Show Notifications DLQ replay logs
+  condition: always()
+  continueOnError: true
+  inputs:
+    connectionType: Kubernetes Service Connection
+    kubernetesServiceEndpoint: ${{ parameters.kubernetesServiceConnection }}
+    namespace: ${{ parameters.namespace }}
+    command: logs
+    arguments: job/notifications-dlq-replay-$(Build.BuildId)-$(System.StageAttempt) --all-containers=true --tail=200
+
+- task: Kubernetes@1
+  displayName: Describe failed Notifications DLQ replay Job
+  condition: failed()
+  continueOnError: true
+  inputs:
+    connectionType: Kubernetes Service Connection
+    kubernetesServiceEndpoint: ${{ parameters.kubernetesServiceConnection }}
+    namespace: ${{ parameters.namespace }}
+    command: describe
+    arguments: job/notifications-dlq-replay-$(Build.BuildId)-$(System.StageAttempt)

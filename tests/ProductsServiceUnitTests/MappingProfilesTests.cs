@@ -29,8 +29,8 @@ public class MappingProfilesTests
     {
         var request = new ProductAddRequest
         {
-            ProductName = "Keyboard",
-            UnitPrice = 89.99,
+            DisplayName = "Keyboard",
+            UnitPrice = 89.99m,
             QuantityInStock = 12
         };
 
@@ -38,7 +38,7 @@ public class MappingProfilesTests
 
         result.Should().BeEquivalentTo(new
         {
-            request.ProductName,
+            request.DisplayName,
             request.UnitPrice,
             request.QuantityInStock
         });
@@ -52,9 +52,10 @@ public class MappingProfilesTests
         var request = new ProductUpdateRequest
         {
             ProductId = Guid.NewGuid(),
-            ProductName = "Mouse",
-            UnitPrice = 49.99,
-            QuantityInStock = 20
+            DisplayName = "Mouse",
+            UnitPrice = 49.99m,
+            QuantityInStock = 20,
+            Version = 4
         };
 
         var result = _mapper.Map<Product>(request);
@@ -62,11 +63,11 @@ public class MappingProfilesTests
         result.Should().BeEquivalentTo(new
         {
             request.ProductId,
-            request.ProductName,
+            request.DisplayName,
             request.UnitPrice,
             request.QuantityInStock
         });
-        result.Version.Should().Be(0);
+        result.Version.Should().Be(request.Version);
     }
 
     [Fact]
@@ -75,8 +76,8 @@ public class MappingProfilesTests
         var product = new Product
         {
             ProductId = Guid.NewGuid(),
-            ProductName = "Monitor",
-            UnitPrice = 299.99,
+            DisplayName = "Monitor",
+            UnitPrice = 299.99m,
             QuantityInStock = 5,
             Version = 3
         };
@@ -85,8 +86,9 @@ public class MappingProfilesTests
 
         result.Should().BeEquivalentTo(new ProductResponse(
             product.ProductId,
-            product.ProductName,
+            product.DisplayName,
             product.UnitPrice,
-            product.QuantityInStock));
+            product.QuantityInStock,
+            product.Version));
     }
 }

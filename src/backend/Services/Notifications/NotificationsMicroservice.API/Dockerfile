@@ -1,0 +1,25 @@
+FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS base
+USER $APP_UID
+WORKDIR /app
+EXPOSE 8080
+
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+ARG BUILD_CONFIGURATION=Release
+WORKDIR /src
+COPY ["src/backend/BuildingBlocks/CommonService/CommonService.csproj", "src/backend/BuildingBlocks/CommonService/"]
+COPY ["src/backend/Services/Notifications/NotificationsMicroservice.Core/NotificationsMicroservice.Core.csproj", "src/backend/Services/Notifications/NotificationsMicroservice.Core/"]
+COPY ["src/backend/Services/Notifications/NotificationsMicroservice.Infrastructure/NotificationsMicroservice.Infrastructure.csproj", "src/backend/Services/Notifications/NotificationsMicroservice.Infrastructure/"]
+COPY ["src/backend/Services/Notifications/NotificationsMicroservice.API/NotificationsMicroservice.API.csproj", "src/backend/Services/Notifications/NotificationsMicroservice.API/"]
+RUN dotnet restore "src/backend/Services/Notifications/NotificationsMicroservice.API/NotificationsMicroservice.API.csproj"
+COPY . .
+WORKDIR "/src/src/backend/Services/Notifications/NotificationsMicroservice.API"
+RUN dotnet build "NotificationsMicroservice.API.csproj" -c $BUILD_CONFIGURATION -o /app/build
+
+FROM build AS publish
+ARG BUILD_CONFIGURATION=Release
+RUN dotnet publish "NotificationsMicroservice.API.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
+
+FROM base AS final
+WORKDIR /app
+COPY --from=publish /app/publish .
+ENTRYPOINT ["dotnet", "NotificationsMicroservice.API.dll"]

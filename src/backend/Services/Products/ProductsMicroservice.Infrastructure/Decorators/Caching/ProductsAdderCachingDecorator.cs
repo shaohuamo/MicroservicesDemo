@@ -23,29 +23,34 @@ namespace ProductsMicroservice.Infrastructure.Decorators.Caching
             _logger = logger;
         }
 
-        public async Task<ProductResponse?> AddProductAsync(ProductAddRequest productAddRequest)
+        public async Task<ProductAddResult> AddProductAsync(
+            ProductAddRequest productAddRequest,
+            Guid idempotencyKey)
         {
             ArgumentNullException.ThrowIfNull(productAddRequest);
 
-            var result = await _inner.AddProductAsync(productAddRequest);
+            var result = await _inner.AddProductAsync(
+                productAddRequest, idempotencyKey);
 
-            if (result != null)
+            if (result.IsReplay)
             {
-                var activity = Activity.Current;
-                activity?.AddEvent(new("Cache Invalidation Start"));
+                return result;
+            }
 
-                try
-                {
-                    await _cache.RemoveAsync(ProductCacheKeys.AllProductsKey);
-                    activity?.SetTag("cache.invalidated", true);
-                    _logger.LogInformation("All-products cache invalidated after adding ProductId: {ProductId}", result.ProductId);
-                }
-                catch (Exception ex)
-                {
-                    activity?.AddException(ex);
-                    activity?.SetTag("cache.invalidated", false);
-                    _logger.LogWarning(ex, "Cache invalidation failed after adding product");
-                }
+            var activity = Activity.Current;
+            activity?.AddEvent(new("Cache Invalidation Start"));
+
+            try
+            {
+                await _cache.RemoveAsync(ProductCacheKeys.AllProductsKey);
+                activity?.SetTag("cache.invalidated", true);
+                _logger.LogInformation("All-products cache invalidated after adding ProductId: {ProductId}", result.Product.ProductId);
+            }
+            catch (Exception ex)
+            {
+                activity?.AddException(ex);
+                activity?.SetTag("cache.invalidated", false);
+                _logger.LogWarning(ex, "Cache invalidation failed after adding product");
             }
 
             return result;

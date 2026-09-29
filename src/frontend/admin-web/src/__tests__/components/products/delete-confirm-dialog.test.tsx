@@ -17,9 +17,10 @@ function Wrapper({ children }: { children: ReactNode }) {
 
 const product: ProductResponse = {
   productId: "abc-123",
-  productName: "Test Widget",
+  displayName: "Test Widget",
   unitPrice: 9.99,
   quantityInStock: 5,
+  version: 2,
 };
 
 describe("DeleteConfirmDialog", () => {

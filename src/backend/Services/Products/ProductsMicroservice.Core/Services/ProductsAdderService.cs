@@ -1,69 +1,185 @@
-﻿using AutoMapper;
-using Microsoft.Extensions.Configuration;
+using AutoMapper;
+using CommonService.Messages;
+using Microsoft.Extensions.Logging;
+using ProductsMicroservice.Core.Domain;
 using ProductsMicroservice.Core.Domain.Entities;
+using ProductsMicroservice.Core.Domain.Exceptions;
+using ProductsMicroservice.Core.Domain.Services;
 using ProductsMicroservice.Core.Domain.RepositoryContracts;
 using ProductsMicroservice.Core.DTO;
+using ProductsMicroservice.Core.Messaging;
+using ProductsMicroservice.Core.Messaging.OutboxWriterContracts;
 using ProductsMicroservice.Core.ServiceContracts;
-using Microsoft.Extensions.Logging;
-using ProductsMicroservice.Core.MessageQueue.Abstractions;
-using ProductsMicroservice.Core.MessageQueue.Messages;
+using ProductsMicroservice.Core.Options;
+using Microsoft.Extensions.Options;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 
 namespace ProductsMicroservice.Core.Services;
 
-public class ProductsAdderService: IProductsAdderService
+public class ProductsAdderService : IProductsAdderService
 {
     private readonly IMapper _mapper;
     private readonly IProductsRepository _productsRepository;
-    private readonly IProductMessagePublisher _mqProductAddPublisher;
-    private readonly IConfiguration _configuration;
+    private readonly IProductOperationOutboxWriter _outboxWriter;
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly IProductOperationContextAccessor _operationContextAccessor;
+    private readonly IIdempotencyRepository _idempotencyRepository;
+    private readonly IdempotencyOptions _idempotencyOptions;
     private readonly ILogger<ProductsAdderService> _logger;
 
     public ProductsAdderService(
-        IMapper mapper, IProductsRepository productsRepository, IProductMessagePublisher mqProductAddPublisher,
-        IConfiguration configuration, ILogger<ProductsAdderService> logger)
+        IMapper mapper,
+        IProductsRepository productsRepository,
+        IProductOperationOutboxWriter outboxWriter,
+        IUnitOfWork unitOfWork,
+        IProductOperationContextAccessor operationContextAccessor,
+        IIdempotencyRepository idempotencyRepository,
+        IOptions<IdempotencyOptions> idempotencyOptions,
+        ILogger<ProductsAdderService> logger)
     {
         _mapper = mapper;
         _productsRepository = productsRepository;
-        _mqProductAddPublisher = mqProductAddPublisher;
-        _configuration = configuration;
+        _outboxWriter = outboxWriter;
+        _unitOfWork = unitOfWork;
+        _operationContextAccessor = operationContextAccessor;
+        _idempotencyRepository = idempotencyRepository;
+        _idempotencyOptions = idempotencyOptions.Value;
         _logger = logger;
     }
 
-    public async Task<ProductResponse?> AddProductAsync(ProductAddRequest productAddRequest)
+    public async Task<ProductAddResult> AddProductAsync(
+        ProductAddRequest productAddRequest,
+        Guid idempotencyKey)
     {
-        ArgumentNullException.ThrowIfNull(productAddRequest);//defend against null input
+        ArgumentNullException.ThrowIfNull(productAddRequest);
 
-        _logger.LogInformation("Creating product: {ProductName}", productAddRequest.ProductName);
+        ProductOperationContext operationContext = _operationContextAccessor.GetCurrent();
+        string requestHash = CreateRequestHash(productAddRequest);
 
-        //010-000:add product to database
-        //Map productAddRequest into 'Product' type (it invokes ProductAddRequestToProductMappingProfile)
-        Product productInput = _mapper.Map<Product>(productAddRequest);
-        Product? addedProduct = await _productsRepository.AddProductAsync(productInput);
-
-        if (addedProduct == null)
+        ProductAddResult? replay = await TryGetStoredIdempotencyResultAsync(
+            operationContext.UserId, idempotencyKey, requestHash);
+        if (replay is not null)
         {
-            _logger.LogWarning("Product creation returned null from repository");
+            return replay;
+        }
+
+        Guid notificationId = Guid.CreateVersion7();
+        Product productInput = _mapper.Map<Product>(productAddRequest);
+        ProductNames names = ProductNameNormalizer.Normalize(productInput.DisplayName);
+        productInput.DisplayName = names.DisplayName;
+        productInput.ProductName = names.ProductName;
+        if (productInput.ProductId == Guid.Empty)
+        {
+            productInput.ProductId = Guid.NewGuid();
+        }
+
+        _logger.LogInformation("Creating product {ProductId}: {DisplayName}",
+            productInput.ProductId, productInput.DisplayName);
+
+        if (await _productsRepository.ProductNameExistsAsync(
+                productInput.ProductName))
+        {
+            throw new ProductAlreadyExistsException(productInput.DisplayName);
+        }
+
+        //add product
+        Product addedProduct = await _productsRepository.AddProductAsync(
+            productInput);
+        ProductOperationResultMessage message = ProductOperationResultMessageFactory.Create(
+            notificationId, operationContext, ProductOperation.Add, ProductOperationStatus.Success,
+            addedProduct.ProductId, addedProduct.DisplayName, addedProduct.Version);
+
+        //write message to outbox
+        await _outboxWriter.WriteAsync(message);
+
+        ProductResponse response = _mapper.Map<ProductResponse>(addedProduct);
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+
+        //store idempotency record
+        _idempotencyRepository.Add(new IdempotencyRecord
+        {
+            Id = Guid.CreateVersion7(),
+            UserId = operationContext.UserId,
+            Operation = IdempotencyOperation.AddProduct,
+            IdempotencyKey = idempotencyKey,
+            RequestHash = requestHash,
+            ResponseStatusCode = 201,
+            ResponseJson = JsonSerializer.Serialize(response, JsonSerializerOptions.Web),
+            CreatedAtUtc = now,
+            ExpiresAtUtc = now.AddHours(_idempotencyOptions.RetentionHours)
+        });
+
+        try
+        {
+            await _unitOfWork.SaveChangesAsync();
+        }
+        catch (IdempotencyRecordConflictException)
+        {
+            return await GetRequiredStoredIdempotencyResultAsync(
+                operationContext.UserId, idempotencyKey, requestHash);
+        }
+        catch (ProductAlreadyExistsException)
+        {
+            ProductAddResult? concurrentReplay = await TryGetStoredIdempotencyResultAsync(
+                operationContext.UserId, idempotencyKey, requestHash);
+            if (concurrentReplay is not null)
+            {
+                return concurrentReplay;
+            }
+
+            throw;
+        }
+
+        _logger.LogInformation(
+            "Product {ProductId} and notification {NotificationId} committed",
+            addedProduct.ProductId, notificationId);
+
+        return new ProductAddResult(response, false);
+    }
+
+    private async Task<ProductAddResult?> TryGetStoredIdempotencyResultAsync(
+        string userId,
+        Guid idempotencyKey,
+        string requestHash)
+    {
+        IdempotencyRecord? existing = await _idempotencyRepository.GetAsync(
+            userId, IdempotencyOperation.AddProduct, idempotencyKey);
+        if (existing is null)
+        {
             return null;
         }
 
-        //020-000: Publish message to MQ
-        string routingKey = _configuration["RabbitMQ_Products_RoutingKey"]!;
+        if (!CryptographicOperations.FixedTimeEquals(
+                Convert.FromHexString(existing.RequestHash),
+                Convert.FromHexString(requestHash)))
+        {
+            throw new IdempotencyPayloadConflictException();
+        }
 
-        var productAddMessage = new ProductAddMessage(
-            addedProduct.ProductId,
-            addedProduct.ProductName,
-            addedProduct.UnitPrice,
-            addedProduct.QuantityInStock);
+        ProductResponse response = JsonSerializer.Deserialize<ProductResponse>(
+            existing.ResponseJson, JsonSerializerOptions.Web)
+            ?? throw new InvalidOperationException("Stored idempotency response is invalid.");
+        return new ProductAddResult(response, true);
+    }
 
-        _logger.LogInformation(
-            "Publishing product created event to MQ with routing key {RoutingKey}",
-            routingKey);
+    private async Task<ProductAddResult> GetRequiredStoredIdempotencyResultAsync(
+        string userId,
+        Guid idempotencyKey,
+        string requestHash) =>
+        await TryGetStoredIdempotencyResultAsync(userId, idempotencyKey, requestHash)
+        ?? throw new InvalidOperationException("The concurrent idempotency record was not found.");
 
-        await _mqProductAddPublisher.PublishAsync(routingKey, productAddMessage);
-
-        _logger.LogInformation("Product created event published successfully");
-
-        //Map addedProduct into 'ProductResponse' type (it invokes ProductToProductResponseMappingProfile)
-        return _mapper.Map<ProductResponse>(addedProduct);
+    private static string CreateRequestHash(ProductAddRequest request)
+    {
+        ProductNames names = ProductNameNormalizer.Normalize(request.DisplayName);
+        string canonical = JsonSerializer.Serialize(new
+        {
+            names.DisplayName,
+            UnitPrice = request.UnitPrice,
+            QuantityInStock = request.QuantityInStock
+        }, JsonSerializerOptions.Web);
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
     }
 }

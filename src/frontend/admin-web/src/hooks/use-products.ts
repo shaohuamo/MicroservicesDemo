@@ -6,7 +6,11 @@ import {
   getProducts,
   updateProduct,
 } from "@/lib/api/products";
-import type { ProductAddRequest, ProductUpdateRequest } from "@/types/product";
+import type {
+  ProductAddOperation,
+  ProductDeleteRequest,
+  ProductUpdateRequest,
+} from "@/types/product";
 
 const PRODUCTS_KEY = ["products"] as const;
 
@@ -28,7 +32,7 @@ export function useProduct(productId: string | undefined) {
 export function useAddProduct() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (request: ProductAddRequest) => addProduct(request),
+    mutationFn: (operation: ProductAddOperation) => addProduct(operation),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: PRODUCTS_KEY });
     },
@@ -48,7 +52,7 @@ export function useUpdateProduct() {
 export function useDeleteProduct() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (productId: string) => deleteProduct(productId),
+    mutationFn: (request: ProductDeleteRequest) => deleteProduct(request),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: PRODUCTS_KEY });
     },

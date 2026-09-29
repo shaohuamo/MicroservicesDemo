@@ -1,0 +1,4 @@
+interface:
+  display_name: "Products Code Review"
+  short_description: "Review Products architecture and cross-layer contracts"
+  default_prompt: "Use $products-code-review to review ProductsMicroservice changes."

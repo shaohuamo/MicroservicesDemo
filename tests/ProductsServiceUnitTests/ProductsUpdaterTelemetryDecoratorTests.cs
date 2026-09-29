@@ -26,13 +26,11 @@ public class ProductsUpdaterTelemetryDecoratorTests
         await act.Should().ThrowAsync<ArgumentNullException>();
     }
 
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task UpdateProductAsync_ShouldReturnInnerResult(bool updated)
+    [Fact]
+    public async Task UpdateProductAsync_ShouldReturnInnerResult()
     {
-        var request = new ProductUpdateRequest { ProductId = Guid.NewGuid(), ProductName = "Product" };
-        ProductResponse? response = updated ? new ProductResponse() : null;
+        var request = new ProductUpdateRequest { ProductId = Guid.NewGuid(), DisplayName = "Product" };
+        var response = new ProductResponse();
         _innerMock.Setup(x => x.UpdateProductAsync(request)).ReturnsAsync(response);
 
         var result = await _decorator.UpdateProductAsync(request);
@@ -43,7 +41,7 @@ public class ProductsUpdaterTelemetryDecoratorTests
     [Fact]
     public async Task UpdateProductAsync_ShouldRethrowInnerException()
     {
-        var request = new ProductUpdateRequest { ProductId = Guid.NewGuid(), ProductName = "Product" };
+        var request = new ProductUpdateRequest { ProductId = Guid.NewGuid(), DisplayName = "Product" };
         _innerMock.Setup(x => x.UpdateProductAsync(request))
             .ThrowsAsync(new InvalidOperationException("failure"));
 

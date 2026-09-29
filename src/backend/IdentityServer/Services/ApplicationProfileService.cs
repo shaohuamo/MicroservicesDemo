@@ -19,10 +19,19 @@ public sealed class ApplicationProfileService(UserManager<ApplicationUser> userM
             return;
         }
 
-        context.AddRequestedClaims([
+        var claims = new List<Claim>
+        {
             new Claim(JwtClaimTypes.Name, user.UserName),
             new Claim(JwtClaimTypes.PreferredUserName, user.UserName),
-        ]);
+            new Claim(JwtClaimTypes.EmailVerified, user.EmailConfirmed.ToString().ToLowerInvariant(), ClaimValueTypes.Boolean),
+        };
+
+        if (!string.IsNullOrWhiteSpace(user.Email))
+        {
+            claims.Add(new Claim(JwtClaimTypes.Email, user.Email));
+        }
+
+        context.AddRequestedClaims(claims);
     }
 
     public async Task IsActiveAsync(IsActiveContext context)

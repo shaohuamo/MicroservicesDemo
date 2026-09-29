@@ -1,5 +1,7 @@
 import type {
   ProductAddRequest,
+  ProductAddOperation,
+  ProductDeleteRequest,
   ProductResponse,
   ProductUpdateRequest,
 } from "@/types/product";
@@ -20,9 +22,13 @@ export async function getProductById(
 }
 
 export async function addProduct(
-  request: ProductAddRequest
+  operation: ProductAddOperation
 ): Promise<ProductResponse> {
-  const { data } = await api.post<ProductResponse>("/products", request);
+  const { data } = await api.post<ProductResponse>(
+    "/products",
+    operation.request,
+    { headers: { "Idempotency-Key": operation.idempotencyKey } },
+  );
   return data;
 }
 
@@ -33,7 +39,11 @@ export async function updateProduct(
   return data;
 }
 
-export async function deleteProduct(productId: string): Promise<boolean> {
-  const { data } = await api.delete<boolean>(`/products/${productId}`);
+export async function deleteProduct(
+  request: ProductDeleteRequest
+): Promise<boolean> {
+  const { data } = await api.delete<boolean>(`/products/${request.productId}`, {
+    data: { version: request.version },
+  });
   return data;
 }

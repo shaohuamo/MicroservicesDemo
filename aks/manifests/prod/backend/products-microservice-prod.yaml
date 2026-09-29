@@ -22,6 +22,8 @@ spec:
         env:
         - name: ASPNETCORE_ENVIRONMENT
           value: Production
+        - name: ProductsMigration__RunOnStartup
+          value: "false"
         - name: POSTGRES__HOST
           valueFrom:
             secretKeyRef:
@@ -70,21 +72,18 @@ spec:
           value: "30"
         - name: RabbitMQ__NetworkRecoveryIntervalSeconds
           value: "10"
-        - name: RabbitMQ_Products_Exchange
-          value: "products.exchange"
-        - name: RabbitMQ_Products_RoutingKey
-          value: "products.add"
-        - name: ServiceBus__ConnectionString
-          valueFrom:
-            secretKeyRef:
-              name: products-secrets
-              key: servicebus-connection-string
-        - name: ServiceBus__ProductsUpdatesTopic
-          value: "products.updates"
-        - name: ServiceBus__ProductsUpdatesSubscription
-          value: "products.updates.test"
-        - name: ServiceBus__ProductsUpdatesReprocessTopic
-          value: "products.updates.Reprocess"
+        - name: ProductOperationMessaging__ExchangeName
+          value: "products.operations"
+        - name: ProductOperationMessaging__RoutingKey
+          value: "products.operation.completed"
+        - name: ProductOperationOutbox__PollIntervalMilliseconds
+          value: "1000"
+        - name: ProductOperationOutbox__BatchSize
+          value: "50"
+        - name: ProductOperationOutbox__LeaseSeconds
+          value: "30"
+        - name: ProductOperationOutbox__MaxRetryDelaySeconds
+          value: "60"
         - name: Redis__ConnectionString
           valueFrom:
             secretKeyRef:
@@ -110,10 +109,6 @@ spec:
           value: "http://otel-collector:4317"
         - name: OTEL_RESOURCE_ATTRIBUTES
           value: "deployment.environment=prod"
-        - name: TestMicroserviceName
-          value: "test-microservice-service"
-        - name: TestMicroservicePort
-          value: "8080"
         - name: CacheOptions__DefaultExpirationMinutes
           value: "120"
         - name: CacheOptions__NegativeCacheExpirationMinutes
@@ -131,6 +126,7 @@ spec:
             port: 8080
           initialDelaySeconds: 5
           periodSeconds: 10
+          timeoutSeconds: 5
         livenessProbe:
           httpGet:
             path: /health/live

@@ -12,6 +12,7 @@ public static class Config
             {
                 UserClaims = { "preferred_username" }
             },
+            new IdentityResources.Email(),
         };
 
     public static IEnumerable<ApiScope> ApiScopes =>
@@ -19,7 +20,11 @@ public static class Config
         {
             new ApiScope("products-api", "Products API")
             {
-                UserClaims = { "name", "preferred_username" }
+                UserClaims = { "name", "preferred_username", "email", "email_verified" }
+            },
+            new ApiScope("notifications-api", "Notifications API")
+            {
+                UserClaims = { "name", "preferred_username", "email", "email_verified" }
             },
         };
 
@@ -28,8 +33,8 @@ public static class Config
         {
             new ApiResource("gateway-api", "API Gateway")
             {
-                Scopes = { "products-api" },
-                UserClaims = { "name", "preferred_username" }
+                Scopes = { "products-api", "notifications-api" },
+                UserClaims = { "name", "preferred_username", "email", "email_verified" }
             },
         };
 
@@ -53,7 +58,7 @@ public static class Config
                 RequireClientSecret = false,
                 RedirectUris = { postmanRedirectUri },
                 PostLogoutRedirectUris = { postmanRedirectUri },
-                AllowedScopes = { "openid", "profile", "products-api" },
+                AllowedScopes = { "openid", "profile", "email", "products-api", "notifications-api" },
                 AllowOfflineAccess = true,
                 AccessTokenLifetime = tokenLifetimes.AccessTokenSeconds,
                 AbsoluteRefreshTokenLifetime = tokenLifetimes.AbsoluteRefreshTokenSeconds,
@@ -75,7 +80,7 @@ public static class Config
                 AllowedCorsOrigins = { frontendPublicUrl },
                 AlwaysIncludeUserClaimsInIdToken = true,
                 AllowOfflineAccess = true,
-                AllowedScopes = { "openid", "profile", "products-api" },
+                AllowedScopes = { "openid", "profile", "email", "products-api", "notifications-api" },
                 AccessTokenLifetime = tokenLifetimes.AccessTokenSeconds,
                 AbsoluteRefreshTokenLifetime = tokenLifetimes.AbsoluteRefreshTokenSeconds,
             },

@@ -60,12 +60,14 @@ spec:
               port: 3100
             initialDelaySeconds: 10
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           livenessProbe:
-            httpGet:
-              path: /ready
+            tcpSocket:
               port: 3100
-            initialDelaySeconds: 30
             periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
           resources:
             requests:
               cpu: 10m
@@ -148,12 +150,16 @@ spec:
               port: 9090
             initialDelaySeconds: 15
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /-/healthy
               port: 9090
             initialDelaySeconds: 30
             periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
           resources:
             requests:
               cpu: 10m
@@ -228,12 +234,16 @@ spec:
               port: 9093
             initialDelaySeconds: 10
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /-/healthy
               port: 9093
             initialDelaySeconds: 30
             periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
           resources:
             requests:
               cpu: 10m
@@ -303,12 +313,16 @@ spec:
               port: 3000
             initialDelaySeconds: 15
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /api/health
               port: 3000
             initialDelaySeconds: 30
             periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
           resources:
             requests:
               cpu: 10m
@@ -386,18 +400,22 @@ spec:
               name: otlp-grpc
             - containerPort: 16686
               name: ui
+            - containerPort: 14269
+              name: admin
           readinessProbe:
             httpGet:
               path: /
-              port: 16686
-            initialDelaySeconds: 15
+              port: 14269
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /
-              port: 16686
-            initialDelaySeconds: 30
+              port: 14269
             periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
           resources:
             requests:
               cpu: 10m
@@ -458,16 +476,22 @@ spec:
               name: otlp-http
             - containerPort: 8888
               name: metrics
+            - containerPort: 13133
+              name: health
           readinessProbe:
-            tcpSocket:
-              port: 4317
-            initialDelaySeconds: 10
+            httpGet:
+              path: /
+              port: 13133
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           livenessProbe:
-            tcpSocket:
-              port: 4317
-            initialDelaySeconds: 30
+            httpGet:
+              path: /
+              port: 13133
             periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
           resources:
             requests:
               cpu: 10m

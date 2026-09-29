@@ -1,19 +1,31 @@
 export interface ProductResponse {
   productId: string;
-  productName: string | null;
-  unitPrice: number | null;
-  quantityInStock: number | null;
+  displayName: string | null;
+  unitPrice: number;
+  quantityInStock: number;
+  version: number;
 }
 
 export interface ProductAddRequest {
-  productName: string;
+  displayName: string;
   unitPrice: number;
   quantityInStock: number;
+}
+
+export interface ProductAddOperation {
+  request: ProductAddRequest;
+  idempotencyKey: string;
+}
+
+export interface ProductDeleteRequest {
+  productId: string;
+  version: number;
 }
 
 export interface ProductUpdateRequest {
   productId: string;
-  productName: string;
+  displayName: string;
   unitPrice: number;
   quantityInStock: number;
+  version: number;
 }

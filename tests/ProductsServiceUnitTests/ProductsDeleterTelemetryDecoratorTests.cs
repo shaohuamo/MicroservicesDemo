@@ -20,32 +20,31 @@ public class ProductsDeleterTelemetryDecoratorTests
     [Fact]
     public async Task DeleteProductAsync_ShouldThrow_WhenProductIdIsEmpty()
     {
-        Func<Task> act = () => _decorator.DeleteProductAsync(Guid.Empty);
+        Func<Task> act = () => _decorator.DeleteProductAsync(Guid.Empty, 1);
 
         await act.Should().ThrowAsync<ArgumentException>();
     }
 
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task DeleteProductAsync_ShouldReturnInnerResult(bool deleted)
+    [Fact]
+    public async Task DeleteProductAsync_ShouldComplete_WhenInnerSucceeds()
     {
         var productId = Guid.NewGuid();
-        _innerMock.Setup(x => x.DeleteProductAsync(productId)).ReturnsAsync(deleted);
+        _innerMock.Setup(x => x.DeleteProductAsync(productId, 1))
+            .Returns(Task.CompletedTask);
 
-        var result = await _decorator.DeleteProductAsync(productId);
+        await _decorator.DeleteProductAsync(productId, 1);
 
-        result.Should().Be(deleted);
+        _innerMock.Verify(x => x.DeleteProductAsync(productId, 1), Times.Once);
     }
 
     [Fact]
     public async Task DeleteProductAsync_ShouldRethrowInnerException()
     {
         var productId = Guid.NewGuid();
-        _innerMock.Setup(x => x.DeleteProductAsync(productId))
+        _innerMock.Setup(x => x.DeleteProductAsync(productId, 1))
             .ThrowsAsync(new InvalidOperationException("failure"));
 
-        Func<Task> act = () => _decorator.DeleteProductAsync(productId);
+        Func<Task> act = () => _decorator.DeleteProductAsync(productId, 1);
 
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("failure");
     }

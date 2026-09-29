@@ -21,9 +21,13 @@
     <None Include="..\..\configs\otel-collector-config.yml" />
     <None Include="..\..\configs\postgres-exporter\queries.yaml" />
     <None Include="..\..\configs\postgres\conf\postgresql.conf" />
-    <None Include="..\..\configs\postgres\init\sql1.sql" />
-    <None Include="..\..\configs\postgres\init\sql2.sql" />
-    <None Include="..\..\configs\postgres\init\sql3.sql" />
+    <None Include="..\..\configs\postgres\init\create-products-database.sql" />
+    <None Include="..\..\configs\postgres\init\configure-postgres-monitoring.sql" />
+    <None Include="..\..\configs\postgres\init\create-identity-server-database.sql" />
+    <None Include="..\..\configs\postgres\init\create-admin-web-database.sql" />
+    <None Include="..\..\configs\postgres\init\create-notifications-database.sql" />
+    <None Include="..\..\configs\postgres\init\create-notifications-table-and-indexes.sql" />
+    <None Include="..\..\configs\postgres\init\create-admin-web-refresh-tokens-table-and-index.sql" />
     <None Include="..\..\configs\prometheus\prometheus.yml" />
     <None Include="..\..\configs\prometheus\rules\prometheus-alert.rules.yml" />
     <None Include="..\..\configs\prometheus\rules\rabbitmq-alert-rules.yml" />

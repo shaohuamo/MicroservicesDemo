@@ -33,6 +33,10 @@ processors:
         key: loki.resource.labels
         value: service.name
 
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
 exporters:
   otlp/jaeger:
     endpoint: jaeger:4317
@@ -51,6 +55,7 @@ exporters:
     verbosity: detailed
 
 service:
+  extensions: [health_check]
   telemetry:
     metrics:
       address: 0.0.0.0:8888

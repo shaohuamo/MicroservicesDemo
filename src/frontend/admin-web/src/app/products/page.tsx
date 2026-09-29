@@ -17,7 +17,6 @@ export default function ProductsPage() {
   const [deleteProduct, setDeleteProduct] = useState<ProductResponse | null>(
     null
   );
-
   function handleAdd() {
     setEditProduct(undefined);
     setFormSessionId((prev) => prev + 1);
@@ -74,7 +73,7 @@ export default function ProductsPage() {
                 <span className="font-display text-4xl font-semibold text-[var(--text)]">
                   {totalProducts.toString().padStart(2, "0")}
                 </span>
-                <span className="pb-1 text-sm text-[var(--muted)]">{t("products.inView")}</span>
+                <span className="pb-1 text-base text-[var(--muted)]">{t("products.inView")}</span>
               </div>
             </div>
             <button onClick={handleAdd} className="editorial-button self-start sm:self-stretch">
@@ -93,7 +92,7 @@ export default function ProductsPage() {
               {stat.value}
             </div>
             {stat.detail && (
-              <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{stat.detail}</p>
+              <p className="mt-2 text-base leading-6 text-[var(--muted)]">{stat.detail}</p>
             )}
           </article>
         ))}
@@ -127,7 +126,7 @@ export default function ProductsPage() {
           <h2 className="font-display mt-3 text-3xl font-semibold text-[var(--text)]">
             {t("products.loadFailed")}
           </h2>
-          <p className="mt-4 max-w-2xl text-sm leading-7 text-[var(--muted)] sm:text-base">
+          <p className="mt-4 max-w-2xl text-base leading-7 text-[var(--muted)]">
             {t("products.loadFailedDetail")}
           </p>
         </section>
@@ -141,7 +140,7 @@ export default function ProductsPage() {
             </svg>
           </div>
           <h2 className="font-display mt-6 text-3xl font-semibold text-[var(--text)]">{t("products.emptyTitle")}</h2>
-          <p className="mx-auto mt-4 max-w-xl text-sm leading-7 text-[var(--muted)] sm:text-base">
+          <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-[var(--muted)]">
             {t("products.emptyDetail")}
           </p>
         </section>
@@ -157,7 +156,7 @@ export default function ProductsPage() {
             </div>
           </div>
           <div className="table-scroll">
-            <table className="data-table w-full text-sm">
+            <table className="data-table w-full text-base">
             <thead>
               <tr>
                 <th>{t("products.table.name")}</th>
@@ -177,7 +176,7 @@ export default function ProductsPage() {
                         </svg>
                       </div>
                       <div>
-                        <div className="font-medium text-[var(--text)]">{product.productName ?? "-"}</div>
+                        <div className="font-medium text-[var(--text)]">{product.displayName ?? "-"}</div>
                       </div>
                     </div>
                   </td>

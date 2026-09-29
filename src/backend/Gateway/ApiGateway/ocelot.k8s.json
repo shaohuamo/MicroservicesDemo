@@ -70,23 +70,46 @@
       }
     },
     {
-      "UpstreamPathTemplate": "/gateway/test",
-      "DownstreamPathTemplate": "/api/test",
-
+      "UpstreamPathTemplate": "/gateway/notifications",
+      "DownstreamPathTemplate": "/api/notifications",
       "UpstreamScheme": "http",
       "DownstreamScheme": "http",
-
-      "UpstreamHttpMethod": [
-        "Get"
-      ],
-
+      "UpstreamHttpMethod": [ "Get" ],
       "DownstreamHostAndPorts": [
         {
-          "Host": "test-microservice-service",
+          "Host": "notifications-microservice-service",
           "Port": 8080
         }
       ],
-
+      "AuthenticationOptions": {
+        "AuthenticationProviderKey": "Bearer",
+        "AllowedScopes": [ "notifications-api" ]
+      },
+      "RateLimitOptions": {
+        "Limit": 100,
+        "Period": "1m",
+        "HttpStatusCode": 429,
+        "EnableRateLimiting": true,
+        "ClientWhitelist": [],
+        "ClientIdHeader": "Client-Id"
+      }
+    },
+    {
+      "UpstreamPathTemplate": "/gateway/notifications/{everything}",
+      "DownstreamPathTemplate": "/api/notifications/{everything}",
+      "UpstreamScheme": "http",
+      "DownstreamScheme": "http",
+      "UpstreamHttpMethod": [ "Get", "Post", "Put" ],
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "notifications-microservice-service",
+          "Port": 8080
+        }
+      ],
+      "AuthenticationOptions": {
+        "AuthenticationProviderKey": "Bearer",
+        "AllowedScopes": [ "notifications-api" ]
+      },
       "RateLimitOptions": {
         "Limit": 100,
         "Period": "1m",

@@ -12,6 +12,8 @@ namespace CommonService.Middlewares
     /// </summary>
     public class TraceContextMiddleware
     {
+        public const string UserIdItemKey = "CommonService.TraceContext.UserId";
+
         private readonly RequestDelegate _next;
 
         /// <summary>
@@ -43,6 +45,7 @@ namespace CommonService.Middlewares
             }
 
             userId = string.IsNullOrEmpty(userId) ? "anonymous" : userId;
+            httpContext.Items[UserIdItemKey] = userId;
 
             // 020-000:set useId for distributed trace propagation
             Baggage.SetBaggage("user_id", userId);

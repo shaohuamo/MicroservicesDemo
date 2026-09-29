@@ -3,28 +3,12 @@
     "http": {
       "commandName": "Project",
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development",
-        "MYSQL_HOST": "localhost",
-        "MYSQL_PASSWORD": "admin",
-        "MYSQL_DATABASE": "productsdatabase",
-        "MYSQL_PORT": "3306",
-        "MYSQL_USER": "root",
-
-        "RabbitMQ_HostName": "localhost",
-        "RabbitMQ_Port": "5672",
-        "RabbitMQ_UserName": "guest",
-        "RabbitMQ_Password": "guest",
-        "RabbitMQ_Products_Exchange": "products.exchange",
-        "RabbitMQ_Products_RoutingKey": "products.add",
-
-        "REDIS_HOST": "localhost",
-        "REDIS_PORT": "6579",
-        "REDIS_INSTANCE_NAME": "ProductMicroservice_"
+        "ASPNETCORE_ENVIRONMENT": "Development"
       },
       "dotnetRunMessages": true,
       "launchBrowser": true,
       "applicationUrl": "http://localhost:5093",
-      //"launchUrl": "swagger"
+      "launchUrl": ""
     },
     "Container (Dockerfile)": {
       "commandName": "Docker",

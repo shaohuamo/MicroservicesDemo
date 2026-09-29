@@ -1,0 +1,4 @@
+interface:
+  display_name: EF Core Migration
+  short_description: Generate and apply EF Core migrations safely
+  default_prompt: Use $ef-migration to create or update EF Core migrations through dotnet ef commands.

@@ -22,7 +22,7 @@ export default function GlobalError({
             {translate(locale, "error.title")}
           </h2>
           <p className="text-sm text-red-600 mb-4">
-            {error.message || translate(locale, "error.critical")}
+            {translate(locale, "error.critical")}
           </p>
           <button
             onClick={reset}

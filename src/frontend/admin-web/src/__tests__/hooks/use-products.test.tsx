@@ -21,7 +21,7 @@ function createWrapper() {
 describe("useProducts", () => {
   it("fetches product list", async () => {
     const products = [
-      { productId: "1", productName: "A", unitPrice: 1, quantityInStock: 10 },
+      { productId: "1", displayName: "A", unitPrice: 1, quantityInStock: 10, version: 1 },
     ];
     vi.mocked(productsApi.getProducts).mockResolvedValue(products);
 
@@ -43,18 +43,18 @@ describe("useProducts", () => {
 
 describe("useAddProduct", () => {
   it("calls addProduct and invalidates queries", async () => {
-    const newProduct = { productId: "2", productName: "B", unitPrice: 5, quantityInStock: 20 };
+    const newProduct = { productId: "2", displayName: "B", unitPrice: 5, quantityInStock: 20, version: 1 };
     vi.mocked(productsApi.addProduct).mockResolvedValue(newProduct);
 
     const { result } = renderHook(() => useAddProduct(), { wrapper: createWrapper() });
 
-    await result.current.mutateAsync({ productName: "B", unitPrice: 5, quantityInStock: 20 });
+    const operation = {
+      request: { displayName: "B", unitPrice: 5, quantityInStock: 20 },
+      idempotencyKey: "7f277273-b334-47f9-8b59-d37aa3473665",
+    };
+    await result.current.mutateAsync(operation);
 
-    expect(productsApi.addProduct).toHaveBeenCalledWith({
-      productName: "B",
-      unitPrice: 5,
-      quantityInStock: 20,
-    });
+    expect(productsApi.addProduct).toHaveBeenCalledWith(operation);
   });
 });
 
@@ -64,8 +64,8 @@ describe("useDeleteProduct", () => {
 
     const { result } = renderHook(() => useDeleteProduct(), { wrapper: createWrapper() });
 
-    await result.current.mutateAsync("del-id");
+    await result.current.mutateAsync({ productId: "del-id", version: 3 });
 
-    expect(productsApi.deleteProduct).toHaveBeenCalledWith("del-id");
+    expect(productsApi.deleteProduct).toHaveBeenCalledWith({ productId: "del-id", version: 3 });
   });
 });

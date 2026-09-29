@@ -1,0 +1,4 @@
+interface:
+  display_name: "C# Test Generator"
+  short_description: "Generate focused C# xUnit tests with mocks"
+  default_prompt: "Use $csharp-test-gen to create comprehensive xUnit tests for this C# code."

@@ -6,6 +6,7 @@ public interface IProductsDeleterService
     /// Deletes an existing product based on given product id
     /// </summary>
     /// <param name="productId">ProductId to search and delete</param>
-    /// <returns>Returns true if the deletion is successful; otherwise false</returns>
-    Task<bool> DeleteProductAsync(Guid productId);
+    /// <param name="expectedVersion">Version originally read by the client.</param>
+    /// <returns>A task that completes after a successful deletion.</returns>
+    Task DeleteProductAsync(Guid productId, int expectedVersion);
 }

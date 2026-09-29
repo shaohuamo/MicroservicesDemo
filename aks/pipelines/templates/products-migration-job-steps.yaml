@@ -1,0 +1,61 @@
+parameters:
+- name: namespace
+  type: string
+- name: kubernetesServiceConnection
+  type: string
+
+steps:
+- pwsh: |
+    $jobName = "products-database-migration-$(Build.BuildId)-$(System.StageAttempt)"
+    $source = 'aks/manifests/shared/backend/products-database-migration.yaml'
+    $target = "$(Pipeline.Workspace)/products-database-migration-${{ parameters.namespace }}.yaml"
+    $manifest = Get-Content -LiteralPath $source -Raw
+    $oldName = '  name: products-database-migration'
+    if (-not $manifest.Contains($oldName)) {
+      throw "Job metadata name was not found in $source"
+    }
+    $manifest = $manifest.Replace($oldName, "  name: $jobName")
+    Set-Content -LiteralPath $target -Value $manifest
+  displayName: Render Products migration Job for ${{ parameters.namespace }}
+
+- task: KubernetesManifest@1
+  displayName: Run Products database migration in ${{ parameters.namespace }} namespace
+  inputs:
+    action: deploy
+    connectionType: kubernetesServiceConnection
+    kubernetesServiceConnection: ${{ parameters.kubernetesServiceConnection }}
+    namespace: ${{ parameters.namespace }}
+    manifests: $(Pipeline.Workspace)/products-database-migration-${{ parameters.namespace }}.yaml
+    containers: |
+      $(containerRegistry)/$(imageRepository):$(tag)
+
+- task: Kubernetes@1
+  displayName: Wait for Products database migration in ${{ parameters.namespace }} namespace
+  inputs:
+    connectionType: Kubernetes Service Connection
+    kubernetesServiceEndpoint: ${{ parameters.kubernetesServiceConnection }}
+    namespace: ${{ parameters.namespace }}
+    command: wait
+    arguments: --for=condition=complete job/products-database-migration-$(Build.BuildId)-$(System.StageAttempt) --timeout=330s
+
+- task: Kubernetes@1
+  displayName: Describe failed Products migration Job in ${{ parameters.namespace }}
+  condition: failed()
+  continueOnError: true
+  inputs:
+    connectionType: Kubernetes Service Connection
+    kubernetesServiceEndpoint: ${{ parameters.kubernetesServiceConnection }}
+    namespace: ${{ parameters.namespace }}
+    command: describe
+    arguments: job/products-database-migration-$(Build.BuildId)-$(System.StageAttempt)
+
+- task: Kubernetes@1
+  displayName: Log failed Products migration Job in ${{ parameters.namespace }}
+  condition: failed()
+  continueOnError: true
+  inputs:
+    connectionType: Kubernetes Service Connection
+    kubernetesServiceEndpoint: ${{ parameters.kubernetesServiceConnection }}
+    namespace: ${{ parameters.namespace }}
+    command: logs
+    arguments: job/products-database-migration-$(Build.BuildId)-$(System.StageAttempt) --all-containers=true --tail=200

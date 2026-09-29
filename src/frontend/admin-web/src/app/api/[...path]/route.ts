@@ -1,10 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
+import { context, propagation, SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import { auth } from "@/auth";
+import type { NextAuthRequest } from "next-auth";
 import {
   getRequestHeadersForLog,
   getResponseBodyForLog,
   logDevelopmentHttp,
 } from "@/lib/dev-http-logging";
+import {
+  getServerTracer,
+  logServerEvent,
+  resolveRequestTraceContext,
+  SeverityNumber,
+} from "@/lib/notifications/server-otel";
+import { resolveBffProxyRoute } from "@/lib/api/bff-route-template";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -123,7 +132,7 @@ function buildProxyHeaders(request: NextRequest, accessToken?: string) {
   return headers;
 }
 
-async function proxyRequest(request: NextRequest, { params }: RouteContext) {
+async function proxyRequestInContext(request: NextRequest, routeContext: RouteContext) {
   const gatewayBaseUrl = getGatewayBaseUrl();
 
   if (!gatewayBaseUrl) {
@@ -140,11 +149,29 @@ async function proxyRequest(request: NextRequest, { params }: RouteContext) {
     );
   }
 
+  const response = await authenticatedProxyRequest(request, routeContext);
+  if (!response) {
+    throw new Error("Authenticated API proxy did not return a response.");
+  }
+  return response;
+}
+
+async function proxyRequestWithSession(request: NextAuthRequest, { params }: RouteContext) {
+  const gatewayBaseUrl = getGatewayBaseUrl()!;
   const { path } = await params;
   const upstreamUrl = new URL(
     `${gatewayBaseUrl}/gateway/${path.join("/")}${request.nextUrl.search}`
   );
-  const session = await auth();
+  const routeTemplate = resolveBffProxyRoute(request.method, request.nextUrl.pathname);
+  const gatewayRouteTemplate = routeTemplate.replace(/^\/api\//, "/gateway/");
+  const session = request.auth;
+
+  if (session?.error === "RefreshUnavailable") {
+    return NextResponse.json(
+      { message: "Authentication refresh is temporarily unavailable." },
+      { status: 503, headers: { "retry-after": "1" } },
+    );
+  }
 
   if (session?.error) {
     return NextResponse.json(
@@ -168,13 +195,59 @@ async function proxyRequest(request: NextRequest, { params }: RouteContext) {
     body: requestBody ? new TextDecoder().decode(requestBody) : undefined,
   });
 
-  const upstreamResponse = await fetch(upstreamUrl, {
-    method: request.method,
-    headers: proxyHeaders,
-    body: requestBody,
-    cache: "no-store",
-    redirect: "manual",
-  });
+  const upstreamResponse = await getServerTracer().startActiveSpan(
+    `gateway ${request.method.toUpperCase()} ${gatewayRouteTemplate}`,
+    { kind: SpanKind.CLIENT },
+    async (span) => {
+      span.setAttribute("http.request.method", request.method.toUpperCase());
+      span.setAttribute("url.path", upstreamUrl.pathname);
+      logServerEvent(SeverityNumber.INFO, "INFO", "BFF API proxy request started", {
+        "http.request.method": request.method.toUpperCase(),
+        "http.route": routeTemplate,
+      });
+
+      try {
+        propagation.inject(context.active(), proxyHeaders, {
+          set(carrier, key, value) {
+            carrier.set(key, value);
+          },
+        });
+        const upstreamResponse = await fetch(upstreamUrl, {
+          method: request.method,
+          headers: proxyHeaders,
+          body: requestBody,
+          cache: "no-store",
+          redirect: "manual",
+        });
+        span.setAttribute("http.response.status_code", upstreamResponse.status);
+        span.setStatus({
+          code: upstreamResponse.ok ? SpanStatusCode.OK : SpanStatusCode.ERROR,
+        });
+        logServerEvent(
+          upstreamResponse.ok ? SeverityNumber.INFO : SeverityNumber.WARN,
+          upstreamResponse.ok ? "INFO" : "WARN",
+          "BFF API proxy request completed",
+          {
+            "http.request.method": request.method.toUpperCase(),
+            "http.route": routeTemplate,
+            "http.response.status_code": upstreamResponse.status,
+          },
+        );
+        return upstreamResponse;
+      } catch (error) {
+        span.recordException(error instanceof Error ? error : new Error(String(error)));
+        span.setStatus({ code: SpanStatusCode.ERROR });
+        logServerEvent(SeverityNumber.ERROR, "ERROR", "BFF API proxy request failed", {
+          "http.request.method": request.method.toUpperCase(),
+          "http.route": routeTemplate,
+          "error.type": error instanceof Error ? error.name : "UnknownError",
+        });
+        throw error;
+      } finally {
+        span.end();
+      }
+    },
+  );
 
   logDevelopmentHttp("backend api response", {
     method: request.method,
@@ -189,6 +262,20 @@ async function proxyRequest(request: NextRequest, { params }: RouteContext) {
     status: upstreamResponse.status,
     headers: upstreamResponse.headers,
   });
+}
+
+async function authenticatedProxyRequest(request: NextRequest, routeContext: RouteContext) {
+  const handler = await auth(proxyRequestWithSession);
+  return handler(request, routeContext);
+}
+
+async function proxyRequest(request: NextRequest, routeContext: RouteContext) {
+  const parentContext = resolveRequestTraceContext({
+    traceparent: request.headers.get("traceparent") ?? undefined,
+    tracestate: request.headers.get("tracestate") ?? undefined,
+  });
+
+  return context.with(parentContext, () => proxyRequestInContext(request, routeContext));
 }
 
 export async function GET(request: NextRequest, context: RouteContext) {

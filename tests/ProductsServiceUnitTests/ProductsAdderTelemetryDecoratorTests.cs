@@ -9,6 +9,7 @@ namespace ProductsMicroservice.Tests;
 
 public class ProductsAdderTelemetryDecoratorTests
 {
+    private readonly Guid _key = Guid.NewGuid();
     private readonly Mock<IProductsAdderService> _innerMock = new();
     private readonly Mock<ILogger<ProductsAdderTelemetryDecorator>> _loggerMock = new();
     private readonly ProductsAdderTelemetryDecorator _decorator;
@@ -21,7 +22,7 @@ public class ProductsAdderTelemetryDecoratorTests
     [Fact]
     public async Task AddProductAsync_ShouldThrow_WhenRequestIsNull()
     {
-        Func<Task> act = () => _decorator.AddProductAsync(null!);
+        Func<Task> act = () => _decorator.AddProductAsync(null!, _key);
 
         await act.Should().ThrowAsync<ArgumentNullException>();
     }
@@ -29,23 +30,24 @@ public class ProductsAdderTelemetryDecoratorTests
     [Fact]
     public async Task AddProductAsync_ShouldReturnInnerResponse()
     {
-        var request = new ProductAddRequest { ProductName = "Product" };
+        var request = new ProductAddRequest { DisplayName = "Product" };
         var response = new ProductResponse(Guid.NewGuid(), "Product", 10, 2);
-        _innerMock.Setup(x => x.AddProductAsync(request)).ReturnsAsync(response);
+        var addResult = new ProductAddResult(response, false);
+        _innerMock.Setup(x => x.AddProductAsync(request, _key)).ReturnsAsync(addResult);
 
-        var result = await _decorator.AddProductAsync(request);
+        var result = await _decorator.AddProductAsync(request, _key);
 
-        result.Should().BeSameAs(response);
+        result.Should().BeSameAs(addResult);
     }
 
     [Fact]
     public async Task AddProductAsync_ShouldRethrowInnerException()
     {
-        var request = new ProductAddRequest { ProductName = "Product" };
-        _innerMock.Setup(x => x.AddProductAsync(request))
+        var request = new ProductAddRequest { DisplayName = "Product" };
+        _innerMock.Setup(x => x.AddProductAsync(request, _key))
             .ThrowsAsync(new InvalidOperationException("failure"));
 
-        Func<Task> act = () => _decorator.AddProductAsync(request);
+        Func<Task> act = () => _decorator.AddProductAsync(request, _key);
 
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("failure");
     }

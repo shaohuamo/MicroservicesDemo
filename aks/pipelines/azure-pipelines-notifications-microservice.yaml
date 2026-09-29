@@ -1,0 +1,437 @@
+# Docker
+# Build and push an image to Azure Container Registry, then deploy to AKS
+# https://docs.microsoft.com/azure/devops/pipelines/languages/docker
+
+trigger:
+  branches:
+    include:
+      - dev
+      - qa
+      - uat
+      - staging
+      - prod
+  paths:
+    include:
+    - src/backend/Services/Notifications/**
+    - src/backend/BuildingBlocks/CommonService/**
+    - aks/manifests/dev/backend/notifications-microservice-dev.yaml
+    - aks/manifests/qa/backend/notifications-microservice-qa.yaml
+    - aks/manifests/uat/backend/notifications-microservice-uat.yaml
+    - aks/manifests/staging/backend/notifications-microservice-staging.yaml
+    - aks/manifests/prod/backend/notifications-microservice-prod.yaml
+    - aks/manifests/shared/backend/notifications-gateway-network-policy.yaml
+    - aks/pipelines/azure-pipelines-notifications-microservice.yaml
+
+resources:
+- repo: self
+
+variables:
+  # Reference global variable groups for Docker registry and runtime secrets.
+  - group: identityserver-global
+  - group: notifications-microservice-global
+  - group: infrastructure-key-vault
+
+  # Explicit path avoids picking up Dockerfiles from other services (Gateway, etc.)
+  - name: dockerfilePath
+    value: 'src/backend/Services/Notifications/NotificationsMicroservice.API/Dockerfile'
+  - name: tag
+    value: '$(Build.BuildId)'
+
+  # Agent VM image name
+  - name: vmImageName
+    value: 'ubuntu-latest'
+
+stages:
+- stage: Build
+  displayName: Build and push stage
+  jobs:
+  - job: Build
+    displayName: Build
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+    - task: Docker@2
+      displayName: Build and push an image to container registry
+      inputs:
+        command: buildAndPush
+        repository: $(imageRepository)
+        dockerfile: $(dockerfilePath)
+        # Build context must be the repo root: the Dockerfile COPYs files using
+        # paths relative to the solution root (e.g. src/backend/BuildingBlocks/...)
+        buildContext: $(Build.SourcesDirectory)
+        containerRegistry: $(dockerRegistryServiceConnection)
+        tags: |
+          $(tag)
+    - task: Docker@2
+      displayName: Build and push Notifications DLQ replay image
+      inputs:
+        command: buildAndPush
+        repository: notifications-dlq-replay
+        dockerfile: src/backend/Services/Notifications/NotificationsMicroservice.DlqReplay/Dockerfile
+        buildContext: $(Build.SourcesDirectory)
+        containerRegistry: $(dockerRegistryServiceConnection)
+        tags: |
+          $(tag)
+
+- stage: DeployToDev
+  displayName: Deploy to Dev
+  dependsOn: Build
+  condition: and(succeeded('Build'), eq(variables['Build.SourceBranch'], 'refs/heads/dev'))
+  jobs:
+  - deployment: DeploymentToDev
+    displayName: Deployment to Dev Environment
+    pool:
+      vmImage: $(vmImageName)
+    environment: dev
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
+            displayName: Checkout source code
+
+          - pwsh: |
+              function ConvertTo-Base64([string]$name, [string]$value) {
+                if ([string]::IsNullOrWhiteSpace($value)) {
+                  throw "Notifications microservice secret value '$name' is empty."
+                }
+
+                [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($value))
+              }
+
+              $target = "$(Pipeline.Workspace)/notifications-microservice-secrets-dev.yaml"
+              $secretData = [ordered]@{
+                "postgres-host" = "postgres"
+                "postgres-user" = "postgres"
+                "postgres-password" = $env:NOTIFICATIONS_POSTGRES_PASSWORD
+                "rabbitmq-host" = "rabbitmq"
+                "rabbitmq-user" = "guest"
+                "rabbitmq-password" = $env:NOTIFICATIONS_RABBITMQ_PASSWORD
+                "resend-api-token" = $env:NOTIFICATIONS_RESEND_API_TOKEN
+                "resend-from" = $env:NOTIFICATIONS_RESEND_FROM
+              }
+
+              $lines = @(
+                "apiVersion: v1"
+                "kind: Secret"
+                "metadata:"
+                "  name: notifications-microservice-secrets"
+                "  namespace: dev"
+                "type: Opaque"
+                "data:"
+              )
+
+              foreach ($item in $secretData.GetEnumerator()) {
+                $lines += "  $($item.Key): $(ConvertTo-Base64 $item.Key $item.Value)"
+              }
+
+              Set-Content -Path $target -Value ($lines -join [Environment]::NewLine)
+            displayName: Render Notifications microservice secrets manifest for dev namespace
+            env:
+              NOTIFICATIONS_POSTGRES_PASSWORD: $(postgres-password)
+              NOTIFICATIONS_RABBITMQ_PASSWORD: $(rabbitmq-password)
+              NOTIFICATIONS_RESEND_API_TOKEN: $(resend-api-token)
+              NOTIFICATIONS_RESEND_FROM: $(resend-from)
+
+          - task: KubernetesManifest@1
+            displayName: Apply Notifications microservice secrets in dev namespace
+            inputs:
+              action: deploy
+              connectionType: kubernetesServiceConnection
+              kubernetesServiceConnection: dev-microservicesdemo-aks-cluster-dev-1778160743494
+              namespace: dev
+              manifests: |
+                $(Pipeline.Workspace)/notifications-microservice-secrets-dev.yaml
+
+          - pwsh: |
+              $source = "aks/manifests/dev/backend/notifications-microservice-dev.yaml"
+              $target = "$(Pipeline.Workspace)/notifications-microservice-dev.rendered.yaml"
+
+              (Get-Content $source -Raw) `
+                -replace '\$\(tag\)', '$(tag)' |
+                Set-Content $target
+            displayName: Render Notifications microservice dev manifest
+
+          - task: KubernetesManifest@1
+            displayName: Restrict Notifications ingress to Gateway in dev
+            inputs:
+              action: deploy
+              connectionType: kubernetesServiceConnection
+              kubernetesServiceConnection: dev-microservicesdemo-aks-cluster-dev-1778160743494
+              namespace: dev
+              manifests: aks/manifests/shared/backend/notifications-gateway-network-policy.yaml
+
+          - task: KubernetesManifest@1
+            displayName: Deploy Notifications microservice to dev namespace in kubernetes
+            inputs:
+              action: deploy
+              connectionType: kubernetesServiceConnection
+              kubernetesServiceConnection: dev-microservicesdemo-aks-cluster-dev-1778160743494
+              namespace: dev
+              manifests: $(Pipeline.Workspace)/notifications-microservice-dev.rendered.yaml
+              containers: |
+                $(containerRegistry)/$(imageRepository):$(tag)
+
+- stage: DeployToQA
+  displayName: Deploy to QA
+  dependsOn: Build
+  condition: and(succeeded('Build'), eq(variables['Build.SourceBranch'], 'refs/heads/qa'))
+  jobs:
+  - deployment: DeploymentToQA
+    displayName: Deployment to QA Environment
+    pool:
+      vmImage: $(vmImageName)
+    environment: qa
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
+            displayName: Checkout source code
+
+          - task: KubernetesManifest@1
+            displayName: Create Notifications microservice secrets in qa namespace
+            inputs:
+              action: createSecret
+              connectionType: kubernetesServiceConnection
+              kubernetesServiceConnection: qa-microservicesdemo-aks-cluster-qa-1778160953610
+              namespace: qa
+              secretType: generic
+              secretName: notifications-microservice-secrets
+              forceUpdate: true
+              secretArguments: |
+                --from-literal=postgres-host=postgres
+                --from-literal=postgres-user=postgres
+                --from-literal=postgres-password=$(postgres-password)
+                --from-literal=rabbitmq-host=rabbitmq
+                --from-literal=rabbitmq-user=guest
+                --from-literal=rabbitmq-password=$(rabbitmq-password)
+                --from-literal=resend-api-token=$(resend-api-token)
+                --from-literal=resend-from=$(resend-from)
+
+          - pwsh: |
+              $source = "aks/manifests/qa/backend/notifications-microservice-qa.yaml"
+              $target = "$(Pipeline.Workspace)/notifications-microservice-qa.rendered.yaml"
+
+              (Get-Content $source -Raw) `
+                -replace '\$\(tag\)', '$(tag)' |
+                Set-Content $target
+            displayName: Render Notifications microservice qa manifest
+
+          - task: KubernetesManifest@1
+            displayName: Restrict Notifications ingress to Gateway in qa
+            inputs:
+              action: deploy
+              connectionType: kubernetesServiceConnection
+              kubernetesServiceConnection: qa-microservicesdemo-aks-cluster-qa-1778160953610
+              namespace: qa
+              manifests: aks/manifests/shared/backend/notifications-gateway-network-policy.yaml
+
+          - task: KubernetesManifest@1
+            displayName: Deploy Notifications microservice to qa namespace in kubernetes
+            inputs:
+              action: deploy
+              connectionType: kubernetesServiceConnection
+              kubernetesServiceConnection: qa-microservicesdemo-aks-cluster-qa-1778160953610
+              namespace: qa
+              manifests: $(Pipeline.Workspace)/notifications-microservice-qa.rendered.yaml
+              containers: |
+                $(containerRegistry)/$(imageRepository):$(tag)
+
+- stage: DeployToUAT
+  displayName: Deploy to UAT
+  dependsOn: Build
+  condition: and(succeeded('Build'), eq(variables['Build.SourceBranch'], 'refs/heads/uat'))
+  jobs:
+  - deployment: DeploymentToUAT
+    displayName: Deployment to UAT Environment
+    pool:
+      vmImage: $(vmImageName)
+    environment: uat
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
+            displayName: Checkout source code
+
+          - task: KubernetesManifest@1
+            displayName: Create Notifications microservice secrets in uat namespace
+            inputs:
+              action: createSecret
+              connectionType: kubernetesServiceConnection
+              kubernetesServiceConnection: uat-microservicesdemo-aks-cluster-uat-1778161095509
+              namespace: uat
+              secretType: generic
+              secretName: notifications-microservice-secrets
+              forceUpdate: true
+              secretArguments: |
+                --from-literal=postgres-host=postgres
+                --from-literal=postgres-user=postgres
+                --from-literal=postgres-password=$(postgres-password)
+                --from-literal=rabbitmq-host=rabbitmq
+                --from-literal=rabbitmq-user=guest
+                --from-literal=rabbitmq-password=$(rabbitmq-password)
+                --from-literal=resend-api-token=$(resend-api-token)
+                --from-literal=resend-from=$(resend-from)
+
+          - pwsh: |
+              $source = "aks/manifests/uat/backend/notifications-microservice-uat.yaml"
+              $target = "$(Pipeline.Workspace)/notifications-microservice-uat.rendered.yaml"
+
+              (Get-Content $source -Raw) `
+                -replace '\$\(tag\)', '$(tag)' |
+                Set-Content $target
+            displayName: Render Notifications microservice uat manifest
+
+          - task: KubernetesManifest@1
+            displayName: Restrict Notifications ingress to Gateway in uat
+            inputs:
+              action: deploy
+              connectionType: kubernetesServiceConnection
+              kubernetesServiceConnection: uat-microservicesdemo-aks-cluster-uat-1778161095509
+              namespace: uat
+              manifests: aks/manifests/shared/backend/notifications-gateway-network-policy.yaml
+
+          - task: KubernetesManifest@1
+            displayName: Deploy Notifications microservice to uat namespace in kubernetes
+            inputs:
+              action: deploy
+              connectionType: kubernetesServiceConnection
+              kubernetesServiceConnection: uat-microservicesdemo-aks-cluster-uat-1778161095509
+              namespace: uat
+              manifests: $(Pipeline.Workspace)/notifications-microservice-uat.rendered.yaml
+              containers: |
+                $(containerRegistry)/$(imageRepository):$(tag)
+
+- stage: DeployToStaging
+  displayName: Deploy to Staging
+  dependsOn: Build
+  condition: and(succeeded('Build'), eq(variables['Build.SourceBranch'], 'refs/heads/staging'))
+  jobs:
+  - deployment: DeploymentToStaging
+    displayName: Deployment to Staging Environment
+    pool:
+      vmImage: $(vmImageName)
+    environment: staging
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
+            displayName: Checkout source code
+
+          - task: KubernetesManifest@1
+            displayName: Create Notifications microservice secrets in staging namespace
+            inputs:
+              action: createSecret
+              connectionType: kubernetesServiceConnection
+              kubernetesServiceConnection: staging-microservicesdemo-aks-cluster-staging-1778161154539
+              namespace: staging
+              secretType: generic
+              secretName: notifications-microservice-secrets
+              forceUpdate: true
+              secretArguments: |
+                --from-literal=postgres-host=postgres
+                --from-literal=postgres-user=postgres
+                --from-literal=postgres-password=$(postgres-password)
+                --from-literal=rabbitmq-host=rabbitmq
+                --from-literal=rabbitmq-user=guest
+                --from-literal=rabbitmq-password=$(rabbitmq-password)
+                --from-literal=resend-api-token=$(resend-api-token)
+                --from-literal=resend-from=$(resend-from)
+
+          - pwsh: |
+              $source = "aks/manifests/staging/backend/notifications-microservice-staging.yaml"
+              $target = "$(Pipeline.Workspace)/notifications-microservice-staging.rendered.yaml"
+
+              (Get-Content $source -Raw) `
+                -replace '\$\(tag\)', '$(tag)' |
+                Set-Content $target
+            displayName: Render Notifications microservice staging manifest
+
+          - task: KubernetesManifest@1
+            displayName: Restrict Notifications ingress to Gateway in staging
+            inputs:
+              action: deploy
+              connectionType: kubernetesServiceConnection
+              kubernetesServiceConnection: staging-microservicesdemo-aks-cluster-staging-1778161154539
+              namespace: staging
+              manifests: aks/manifests/shared/backend/notifications-gateway-network-policy.yaml
+
+          - task: KubernetesManifest@1
+            displayName: Deploy Notifications microservice to staging namespace in kubernetes
+            inputs:
+              action: deploy
+              connectionType: kubernetesServiceConnection
+              kubernetesServiceConnection: staging-microservicesdemo-aks-cluster-staging-1778161154539
+              namespace: staging
+              manifests: $(Pipeline.Workspace)/notifications-microservice-staging.rendered.yaml
+              containers: |
+                $(containerRegistry)/$(imageRepository):$(tag)
+
+- stage: DeployToProduction
+  displayName: Deploy to Production
+  dependsOn: Build
+  condition: and(succeeded('Build'), eq(variables['Build.SourceBranch'], 'refs/heads/prod'))
+  jobs:
+  - deployment: DeployToProduction
+    displayName: Deployment to Production Environment
+    pool:
+      vmImage: $(vmImageName)
+    environment: prod
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
+            displayName: Checkout source code
+
+          - task: KubernetesManifest@1
+            displayName: Create Notifications microservice secrets in prod namespace
+            inputs:
+              action: createSecret
+              connectionType: kubernetesServiceConnection
+              kubernetesServiceConnection: prod-microservicesdemo-aks-cluster-prod-1778161221255
+              namespace: prod
+              secretType: generic
+              secretName: notifications-microservice-secrets
+              forceUpdate: true
+              secretArguments: |
+                --from-literal=postgres-host=postgres
+                --from-literal=postgres-user=postgres
+                --from-literal=postgres-password=$(postgres-password)
+                --from-literal=rabbitmq-host=rabbitmq
+                --from-literal=rabbitmq-user=guest
+                --from-literal=rabbitmq-password=$(rabbitmq-password)
+                --from-literal=resend-api-token=$(resend-api-token)
+                --from-literal=resend-from=$(resend-from)
+
+          - pwsh: |
+              $source = "aks/manifests/prod/backend/notifications-microservice-prod.yaml"
+              $target = "$(Pipeline.Workspace)/notifications-microservice-prod.rendered.yaml"
+
+              (Get-Content $source -Raw) `
+                -replace '\$\(tag\)', '$(tag)' |
+                Set-Content $target
+            displayName: Render Notifications microservice prod manifest
+
+          - task: KubernetesManifest@1
+            displayName: Restrict Notifications ingress to Gateway in prod
+            inputs:
+              action: deploy
+              connectionType: kubernetesServiceConnection
+              kubernetesServiceConnection: prod-microservicesdemo-aks-cluster-prod-1778161221255
+              namespace: prod
+              manifests: aks/manifests/shared/backend/notifications-gateway-network-policy.yaml
+
+          - task: KubernetesManifest@1
+            displayName: Deploy Notifications microservice to prod namespace in kubernetes
+            inputs:
+              action: deploy
+              connectionType: kubernetesServiceConnection
+              kubernetesServiceConnection: prod-microservicesdemo-aks-cluster-prod-1778161221255
+              namespace: prod
+              manifests: $(Pipeline.Workspace)/notifications-microservice-prod.rendered.yaml
+              containers: |
+                $(containerRegistry)/$(imageRepository):$(tag)

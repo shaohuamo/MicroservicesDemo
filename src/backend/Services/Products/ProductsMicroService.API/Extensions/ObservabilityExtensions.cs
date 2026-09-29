@@ -1,5 +1,4 @@
 ﻿using CommonService.RabbitMQ;
-using CommonService.ServiceBus;
 using Npgsql;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
@@ -37,7 +36,6 @@ namespace ProductsMicroService.API.Extensions
                 .WithTracing(tracerBuilder => tracerBuilder
                     .AddSource(DiagnosticsConfig.ServiceName)
                     .AddSource(RabbitMQTelemetry.ActivitySource.Name)//activity source for RabbitMQ instrumentation
-                    .AddSource(ServiceBusTelemetry.ActivitySource.Name)//activity source for Azure Service Bus instrumentation
                     .AddSource(AppWarmupService.ServiceName)
                     .AddRedisInstrumentation(options =>
                     {

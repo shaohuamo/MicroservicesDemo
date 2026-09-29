@@ -2,17 +2,23 @@ import { describe, it, expect } from "vitest";
 import { AxiosError, AxiosHeaders, type InternalAxiosRequestConfig } from "axios";
 import {
   CircuitBreaker,
+  getApiErrorMessage,
   isRetryableError,
   computeRetryDelay,
 } from "@/lib/api/http-client";
+import { getRequestHeadersForLog } from "@/lib/dev-http-logging";
 
-function makeAxiosError(status?: number, code?: string): AxiosError {
+function makeAxiosError(
+  status?: number,
+  code?: string,
+  data: unknown = null,
+): AxiosError {
   const headers = new AxiosHeaders();
   const config = { headers } as InternalAxiosRequestConfig;
   const response = status
     ? ({
         status,
-        data: null,
+        data,
         statusText: "",
         headers,
         config,
@@ -117,6 +123,21 @@ describe("isRetryableError", () => {
   });
 });
 
+describe("getApiErrorMessage", () => {
+  it("returns the detail from a ProblemDetails response", () => {
+    const error = makeAxiosError(409, undefined, {
+      code: "product.concurrency_conflict",
+      detail: "Refresh the product and try again.",
+    });
+
+    expect(getApiErrorMessage(error)).toBe("Refresh the product and try again.");
+  });
+
+  it("returns undefined for a response without detail", () => {
+    expect(getApiErrorMessage(makeAxiosError(500))).toBeUndefined();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // computeRetryDelay
 // ---------------------------------------------------------------------------
@@ -138,5 +159,16 @@ describe("computeRetryDelay", () => {
   it("caps delay at maximum", () => {
     const d = computeRetryDelay(10);
     expect(d).toBeLessThanOrEqual(5000);
+  });
+});
+
+describe("development HTTP logging", () => {
+  it("redacts the idempotency key", () => {
+    const headers = new Headers({
+      "Idempotency-Key": "7f277273-b334-47f9-8b59-d37aa3473665",
+      "Content-Type": "application/json",
+    });
+
+    expect(getRequestHeadersForLog(headers)["idempotency-key"]).toBe("[REDACTED]");
   });
 });

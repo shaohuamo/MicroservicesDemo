@@ -2,7 +2,7 @@ groups:
   - name: rabbitmq-alerts
     rules:
       - alert: RabbitMQQueueBlocked
-        expr: rabbitmq_queue_messages_ready > 100
+        expr: rabbitmq_queue_messages_ready{queue="notifications.products.operations"} > 100
         for: 5m
         labels:
           severity: critical
@@ -10,10 +10,18 @@ groups:
           summary: "RabbitMQ queue blocked"
           description: "Queue {{ $labels.queue }} has messages blocked"
       - alert: RabbitMQNoConsumers
-        expr: rabbitmq_queue_consumers == 0
+        expr: rabbitmq_queue_consumers{queue="notifications.products.operations"} == 0
         for: 1m
         labels:
           severity: critical
         annotations:
           summary: "RabbitMQ queue has no consumers"
           description: "Queue {{ $labels.queue }} has no consumers"
+      - alert: RabbitMQDeadLetterQueueNotEmpty
+        expr: rabbitmq_queue_messages{queue="notifications.products.operations.dead-letter"} > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "RabbitMQ notification dead-letter queue is not empty"
+          description: "Queue {{ $labels.queue }} contains dead letters; inspect them before manually running the replay pipeline."

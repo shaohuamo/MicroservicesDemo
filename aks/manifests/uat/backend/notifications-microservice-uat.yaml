@@ -1,0 +1,159 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notifications-microservice-deployment
+  labels:
+    app: notifications-microservice
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notifications-microservice
+  template:
+    metadata:
+      labels:
+        app: notifications-microservice
+    spec:
+      containers:
+      - name: notifications-microservice
+        image: microservicesdemoregistry.azurecr.io/notifications-microservice:$(tag)
+        ports:
+        - containerPort: 8080
+        env:
+        - name: ASPNETCORE_ENVIRONMENT
+          value: UAT
+        - name: POSTGRES__HOST
+          valueFrom:
+            secretKeyRef:
+              name: notifications-microservice-secrets
+              key: postgres-host
+        - name: POSTGRES__PORT
+          value: "5432"
+        - name: POSTGRES__DATABASE
+          value: "notificationsdatabase"
+        - name: POSTGRES__USER
+          valueFrom:
+            secretKeyRef:
+              name: notifications-microservice-secrets
+              key: postgres-user
+        - name: POSTGRES__PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: notifications-microservice-secrets
+              key: postgres-password
+        - name: RabbitMQ__HostName
+          valueFrom:
+            secretKeyRef:
+              name: notifications-microservice-secrets
+              key: rabbitmq-host
+        - name: RabbitMQ__UserName
+          valueFrom:
+            secretKeyRef:
+              name: notifications-microservice-secrets
+              key: rabbitmq-user
+        - name: RabbitMQ__Password
+          valueFrom:
+            secretKeyRef:
+              name: notifications-microservice-secrets
+              key: rabbitmq-password
+        - name: RabbitMQ__Port
+          value: "5672"
+        - name: RabbitMQ__MaxRetryAttempts
+          value: "10"
+        - name: RabbitMQ__InitialDelaySeconds
+          value: "2"
+        - name: RabbitMQ__MaxDelaySeconds
+          value: "30"
+        - name: RabbitMQ__NetworkRecoveryIntervalSeconds
+          value: "10"
+        - name: ProductOperations__Exchange
+          value: "products.operations"
+        - name: ProductOperations__RoutingKey
+          value: "products.operation.completed"
+        - name: ProductOperations__Queue
+          value: "notifications.products.operations"
+        - name: ProductOperations__DeadLetterExchange
+          value: "products.operations.dlx"
+        - name: ProductOperations__DeadLetterQueue
+          value: "notifications.products.operations.dead-letter"
+        - name: ProductOperations__PrefetchCount
+          value: "20"
+        - name: Redis__ConnectionString
+          value: "redis:6379"
+        - name: Redis__InstanceName
+          value: "NotificationsMicroservice_"
+        - name: ResendEmail__ApiToken
+          valueFrom:
+            secretKeyRef:
+              name: notifications-microservice-secrets
+              key: resend-api-token
+        - name: ResendEmail__From
+          valueFrom:
+            secretKeyRef:
+              name: notifications-microservice-secrets
+              key: resend-from
+        - name: Delivery__PollingIntervalMilliseconds
+          value: "1000"
+        - name: Delivery__BatchSize
+          value: "50"
+        - name: Delivery__LeaseSeconds
+          value: "30"
+        - name: Delivery__SseAckDeadlineSeconds
+          value: "5"
+        - name: Delivery__MaxSseAttempts
+          value: "2"
+        - name: Delivery__MaxAttempts
+          value: "5"
+        - name: Delivery__RetentionDays
+          value: "30"
+        - name: Delivery__CleanupIntervalMinutes
+          value: "60"
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "http://otel-collector:4317"
+        - name: OTEL_RESOURCE_ATTRIBUTES
+          value: "service.name=notifications.api,deployment.environment=Production"
+        startupProbe:
+          httpGet:
+            path: /health/live
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          failureThreshold: 30
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          timeoutSeconds: 3
+          failureThreshold: 3
+        resources:
+          requests:
+            cpu: 10m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notifications-microservice-service
+  labels:
+    app: notifications-microservice
+spec:
+  selector:
+    app: notifications-microservice
+  ports:
+  - protocol: TCP
+    port: 8080
+    targetPort: 8080
+  type: ClusterIP

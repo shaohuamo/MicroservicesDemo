@@ -1,4 +1,3 @@
-using CommonService.Health;
 using CommonService.Middlewares;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpLogging;
@@ -8,9 +7,14 @@ using ProductsMicroservice.Infrastructure;
 using ProductsMicroService.API.Extensions;
 using ProductsMicroService.API.Health;
 using ProductsMicroService.API.Middleware;
+using ProductsMicroService.API.Security;
+using ProductsMicroservice.Core.ServiceContracts;
 using Steeltoe.Discovery.Consul;
 
-var builder = WebApplication.CreateBuilder(args);
+// A migration Job uses the same image without starting the HTTP server or hosted services.
+bool migrateOnly = args.Contains("--migrate", StringComparer.OrdinalIgnoreCase);
+var hostArgs = args.Where(arg => !string.Equals(arg, "--migrate", StringComparison.OrdinalIgnoreCase)).ToArray();
+var builder = WebApplication.CreateBuilder(hostArgs);
 
 //Add Observability
 builder.AddObservability();
@@ -18,6 +22,8 @@ builder.AddObservability();
 // Add services to the container.
 builder.Services.AddProductsMicroserviceCore(builder.Configuration);
 builder.Services.ProductsMicroserviceInfrastructure(builder.Configuration);
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<IProductOperationContextAccessor, HttpProductOperationContextAccessor>();
 
 builder.Services.AddControllers(options =>
 {
@@ -42,24 +48,32 @@ if (builder.Environment.IsDevelopment())
     });
 }
 
-builder.Services.ConfigureHttpClientDefaults(http =>
-{
-    //configure default resilience policies(retry, circuit breaker,timeout) for all HttpClients
-    http.AddStandardResilienceHandler();
-});
-
 builder.Services.AddHttpLogging(options =>
 {
     options.LoggingFields = HttpLoggingFields.RequestProperties | HttpLoggingFields.ResponsePropertiesAndHeaders;
 });
 
 // Add health checks for Kubernetes probes
-builder.Services.AddSingleton<IStartupReadinessState, StartupReadinessState>();
 builder.Services.AddHealthChecks()
     .AddCheck("self", () => HealthCheckResult.Healthy(), tags: ["live"])
-    .AddCheck<StartupReadinessHealthCheck>("startup_dependencies", tags: ["ready"]);
+    .AddCheck<ProductsDatabaseHealthCheck>(
+        "products_database", tags: ["ready"], timeout: TimeSpan.FromSeconds(3))
+    .AddCheck<ProductsRedisHealthCheck>(
+        "products_redis", tags: ["ready"], timeout: TimeSpan.FromSeconds(3));
 
 var app = builder.Build();
+
+if (migrateOnly)
+{
+    await app.MigrateDatabaseAsync();
+    return;
+}
+
+// Local and Docker Compose retain startup migration; AKS runs it in a Job.
+if (app.Configuration.GetValue("ProductsMigration:RunOnStartup", true))
+{
+    await app.MigrateDatabaseAsync();
+}
 
 // Configure the HTTP request pipeline.
 app.UseExceptionHandlingMiddleware();

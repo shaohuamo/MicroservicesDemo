@@ -3,6 +3,7 @@ using System.Security.Cryptography.X509Certificates;
 using Duende.IdentityServer;
 using IdentityServer.Data;
 using IdentityServer.Extensions;
+using IdentityServer.Health;
 using IdentityServer.Localization;
 using IdentityServer.Models;
 using IdentityServer.Options;
@@ -229,7 +230,10 @@ internal static class HostingExtensions
             options.KnownProxies.Clear();
         });
 
-        builder.Services.AddHealthChecks();
+        builder.Services.AddHealthChecks()
+            .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy(), tags: ["live"])
+            .AddCheck<IdentityDatabaseHealthCheck>("identity_database", tags: ["ready"], timeout: TimeSpan.FromSeconds(5));
+        builder.Services.AddSingleton<IIdentityDatabaseHealthProbe, IdentityDatabaseHealthProbe>();
 
         return builder.Build();
     }
@@ -295,6 +299,14 @@ internal static class HostingExtensions
         app.UseAuthorization();
 
         app.MapHealthChecks("/health");
+        app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+        {
+            Predicate = registration => registration.Tags.Contains("live")
+        });
+        app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+        {
+            Predicate = registration => registration.Tags.Contains("ready")
+        });
 
         app.MapRazorPages()
             .RequireAuthorization();

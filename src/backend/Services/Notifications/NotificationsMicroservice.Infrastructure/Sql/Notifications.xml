@@ -1,0 +1,417 @@
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <SqlQueries>
+    <Notifications>
+      <!-- Inserts a new notification delivery. Duplicate NotificationId values are ignored. -->
+      <Insert_Notification_001><![CDATA[
+        INSERT INTO
+          public."Notifications"(
+            "NotificationId",
+            "PayloadHash",
+            "UserId",
+            "UserEmail",
+            "Culture",
+            "Operation",
+            "Status",
+            "ProductId",
+            "ProductName",
+            "ProductVersion",
+            "ErrorCode",
+            "CorrelationId",
+            "OccurredAtUtc",
+            "TraceParent",
+            "TraceState",
+            "DeliveryStatus")
+        VALUES(
+            @NotificationId,
+            @PayloadHash,
+            @UserId,
+            @UserEmail,
+            @Culture,
+            @Operation,
+            @Status,
+            @ProductId,
+            @ProductName,
+            @ProductVersion,
+            @ErrorCode,
+            @CorrelationId,
+            @OccurredAtUtc,
+            @TraceParent,
+            @TraceState,
+            'Pending')
+        ON CONFLICT
+          ("NotificationId") DO NOTHING
+        RETURNING
+          1;
+      ]]></Insert_Notification_001>
+
+      <!-- Gets the stored payload hash for an existing notification to detect duplicates or payload conflicts. -->
+      <Select_Notification_001><![CDATA[
+        SELECT 
+          "PayloadHash"
+        FROM 
+          public."Notifications"
+        WHERE 
+          "NotificationId" = @NotificationId;
+      ]]></Select_Notification_001>
+
+      <!-- Gets the history page metadata and rows: sequence watermark, unread count, and the user's paged deliveries. -->
+      <Select_Notification_002><![CDATA[
+        SELECT
+          COALESCE(MAX("SequenceNumber"), 0)
+        FROM
+          public."Notifications"
+        WHERE
+              "UserId" = @UserId
+          AND "CreatedAtUtc" >= @CutoffUtc;
+
+        SELECT
+          COUNT(*)
+        FROM
+          public."Notifications"
+        WHERE
+              "UserId" = @UserId
+          AND "CreatedAtUtc" >= @CutoffUtc
+          AND "ReadAtUtc" IS NULL;
+
+        SELECT
+          "NotificationId",
+          "SequenceNumber",
+          "Operation",
+          "Status",
+          "ProductId",
+          "ProductName",
+          "ProductVersion",
+          "OccurredAtUtc",
+          "ErrorCode",
+          "DeliveryStatus",
+          "DeliveredAtUtc",
+          "ReadAtUtc"
+        FROM
+          public."Notifications"
+        WHERE
+              "UserId" = @UserId
+          AND "CreatedAtUtc" >= @CutoffUtc
+          AND (@BeforeSequence IS NULL OR "SequenceNumber" < @BeforeSequence)
+        ORDER BY
+          "SequenceNumber" DESC
+        LIMIT
+          @Take;
+      ]]></Select_Notification_002>
+
+      <!-- Gets the latest notification sequence for a user and uses it as the replay watermark. -->
+      <Select_Notification_003><![CDATA[
+        SELECT
+          COALESCE(MAX("SequenceNumber"), 0)
+        FROM
+          public."Notifications"
+        WHERE
+          "UserId" = @UserId;
+      ]]></Select_Notification_003>
+
+      <!-- Gets pending or retryable deliveries after a sequence up to the requested replay watermark. -->
+      <Select_Notification_004><![CDATA[
+        SELECT
+          "NotificationId",
+          "SequenceNumber",
+          "Operation",
+          "Status",
+          "ProductId",
+          "ProductName",
+          "ProductVersion",
+          "OccurredAtUtc",
+          "ErrorCode",
+          "DeliveryStatus",
+          "DeliveredAtUtc",
+          "ReadAtUtc"
+        FROM
+          public."Notifications"
+        WHERE
+              "UserId" = @UserId
+          AND "SequenceNumber" > @AfterSequence
+          AND "SequenceNumber" <= @Watermark
+          AND "DeliveryStatus" IN ('Pending', 'AwaitingSseAck', 'RetryScheduled', 'Failed')
+        ORDER BY
+          "SequenceNumber" ASC
+        LIMIT
+          @Take;
+      ]]></Select_Notification_004>
+
+      <!-- Acknowledges an in-app delivery and returns whether the notification exists for the user. -->
+      <Update_Notification_001><![CDATA[
+        WITH updated AS(
+          UPDATE
+            public."Notifications"
+          SET
+            "DeliveryStatus" = 'DeliveredInApp',
+            "DeliveredAtUtc" = COALESCE("DeliveredAtUtc", CURRENT_TIMESTAMP),
+            "NextAttemptAtUtc" = NULL,
+            "AckDeadlineUtc" = NULL,
+            "LockedBy" = NULL,
+            "LockedUntilUtc" = NULL,
+            "Version" = "Version" + 1
+          WHERE
+                "NotificationId" = @NotificationId
+            AND "UserId" = @UserId
+            AND "DeliveryStatus" IN ('Pending', 'AwaitingSseAck', 'RetryScheduled', 'Failed')
+          RETURNING 
+            1)
+        SELECT
+          EXISTS(SELECT 1 FROM updated)
+            OR EXISTS(
+              SELECT
+                1
+              FROM
+                public."Notifications"
+              WHERE
+                    "NotificationId" = @NotificationId
+                AND "UserId" = @UserId
+            );
+      ]]></Update_Notification_001>
+
+      <!-- Marks one notification as read and completes eligible in-app delivery states. -->
+      <Update_Notification_002><![CDATA[
+        WITH updated AS(
+            UPDATE
+              public."Notifications"
+            SET
+              "ReadAtUtc" = COALESCE("ReadAtUtc", CURRENT_TIMESTAMP),
+              "DeliveryStatus" = CASE
+                WHEN "DeliveryStatus" IN ('Pending', 'AwaitingSseAck', 'RetryScheduled', 'Failed')
+                THEN 'DeliveredInApp'
+                ELSE "DeliveryStatus"
+              END,
+              "DeliveredAtUtc" = CASE
+                WHEN "DeliveryStatus" IN ('Pending', 'AwaitingSseAck', 'RetryScheduled', 'Failed')
+                THEN COALESCE("DeliveredAtUtc", CURRENT_TIMESTAMP)
+                ELSE "DeliveredAtUtc"
+              END,
+              "NextAttemptAtUtc" = CASE
+                WHEN "DeliveryStatus" = 'SendingEmail'
+                THEN "NextAttemptAtUtc"
+                ELSE NULL
+              END,
+              "AckDeadlineUtc" = CASE
+                WHEN "DeliveryStatus" = 'SendingEmail'
+                THEN "AckDeadlineUtc"
+                ELSE NULL
+              END,
+              "LockedBy" = CASE
+                WHEN "DeliveryStatus" = 'SendingEmail'
+                THEN "LockedBy"
+                ELSE NULL
+              END,
+              "LockedUntilUtc" = CASE
+                WHEN "DeliveryStatus" = 'SendingEmail'
+                THEN "LockedUntilUtc"
+                ELSE NULL
+              END,
+              "Version" = CASE
+                WHEN "DeliveryStatus" = 'SendingEmail'
+                THEN "Version"
+                ELSE "Version" + 1
+              END
+            WHERE
+                  "NotificationId" = @NotificationId
+              AND "UserId" = @UserId
+              AND "ReadAtUtc" IS NULL
+            RETURNING
+              1)
+        SELECT
+          EXISTS(SELECT 1 FROM updated)
+            OR EXISTS(
+              SELECT
+                1
+              FROM
+                public."Notifications"
+              WHERE
+                "NotificationId" = @NotificationId
+                AND "UserId" = @UserId);
+      ]]></Update_Notification_002>
+
+      <!-- Marks all unread notifications up to a user's sequence number as read. -->
+      <Update_Notification_003><![CDATA[
+        UPDATE
+          public."Notifications"
+        SET
+          "ReadAtUtc" = CURRENT_TIMESTAMP,
+          "DeliveryStatus" = CASE
+            WHEN "DeliveryStatus" IN ('Pending', 'AwaitingSseAck', 'RetryScheduled', 'Failed')
+            THEN 'DeliveredInApp'
+            ELSE "DeliveryStatus"
+          END,
+          "DeliveredAtUtc" = CASE
+            WHEN "DeliveryStatus" IN ('Pending', 'AwaitingSseAck', 'RetryScheduled', 'Failed')
+            THEN COALESCE("DeliveredAtUtc", CURRENT_TIMESTAMP)
+            ELSE "DeliveredAtUtc"
+          END,
+          "NextAttemptAtUtc" = CASE
+            WHEN "DeliveryStatus" = 'SendingEmail'
+            THEN "NextAttemptAtUtc"
+            ELSE NULL
+          END,
+          "AckDeadlineUtc" = CASE
+            WHEN "DeliveryStatus" = 'SendingEmail'
+            THEN "AckDeadlineUtc"
+            ELSE NULL
+          END,
+          "LockedBy" = CASE
+            WHEN "DeliveryStatus" = 'SendingEmail'
+            THEN "LockedBy"
+            ELSE NULL
+          END,
+          "LockedUntilUtc" = CASE
+            WHEN "DeliveryStatus" = 'SendingEmail'
+            THEN "LockedUntilUtc"
+            ELSE NULL
+          END,
+          "Version" = CASE
+            WHEN "DeliveryStatus" = 'SendingEmail'
+            THEN "Version"
+            ELSE "Version" + 1
+          END
+        WHERE
+              "UserId" = @UserId
+          AND "SequenceNumber" <= @UpToSequence
+          AND "ReadAtUtc" IS NULL;
+      ]]></Update_Notification_003>
+
+      <!-- Claims due deliveries for a worker using row locks, SKIP LOCKED, and a lease expiration. -->
+      <Update_Notification_004><![CDATA[
+        WITH candidates AS(
+            SELECT
+              "NotificationId"
+            FROM
+              public."Notifications"
+            WHERE
+                  ("LockedUntilUtc" IS NULL OR "LockedUntilUtc" <= CURRENT_TIMESTAMP)
+              AND (
+                    "DeliveryStatus" = 'Pending'
+                OR ("DeliveryStatus" = 'RetryScheduled' AND "NextAttemptAtUtc" <= CURRENT_TIMESTAMP)
+                OR ("DeliveryStatus" = 'AwaitingSseAck' AND "AckDeadlineUtc" <= CURRENT_TIMESTAMP)
+                OR "DeliveryStatus" = 'SendingEmail')
+            ORDER BY
+              COALESCE("NextAttemptAtUtc", "AckDeadlineUtc", "CreatedAtUtc"), "SequenceNumber"
+            FOR UPDATE SKIP LOCKED
+            LIMIT
+              @BatchSize)
+        UPDATE
+              public."Notifications" AS notification
+        SET
+          "LockedBy" = @WorkerId,
+          "LockedUntilUtc" = CURRENT_TIMESTAMP + @LeaseDuration,
+          "AttemptCount" = "AttemptCount" + 1,
+          "Version" = "Version" + 1
+        FROM
+          candidates
+        WHERE
+          notification."NotificationId" = candidates."NotificationId"
+        RETURNING
+          notification.*;
+      ]]></Update_Notification_004>
+
+      <!-- Moves a claimed delivery to AwaitingSseAck after sending it through the SSE channel. -->
+      <Update_Notification_005><![CDATA[
+        UPDATE
+          public."Notifications"
+        SET
+          "DeliveryStatus" = 'AwaitingSseAck',
+          "AckDeadlineUtc" = @AckDeadlineUtc,
+          "NextAttemptAtUtc" = NULL,
+          "LastError" = NULL,
+          "LockedBy" = NULL,
+          "LockedUntilUtc" = NULL,
+          "Version" = "Version" + 1
+        WHERE
+              "NotificationId" = @NotificationId
+          AND "Version" = @ExpectedVersion
+          AND "LockedBy" = @WorkerId
+          AND "DeliveryStatus" IN ('Pending', 'AwaitingSseAck', 'RetryScheduled');
+      ]]></Update_Notification_005>
+
+      <!-- Atomically starts email delivery for a claimed notification and returns the new version. -->
+      <Update_Notification_006><![CDATA[
+        UPDATE
+          public."Notifications"
+        SET
+          "DeliveryStatus" = 'SendingEmail',
+          "NextAttemptAtUtc" = NULL,
+          "AckDeadlineUtc" = NULL,
+          "LastError" = NULL,
+          "Version" = "Version" + 1
+        WHERE
+              "NotificationId" = @NotificationId
+          AND "Version" = @ExpectedVersion
+          AND "LockedBy" = @WorkerId
+          AND "DeliveryStatus" IN ('Pending', 'AwaitingSseAck', 'RetryScheduled')
+        RETURNING
+          "Version";
+      ]]></Update_Notification_006>
+
+      <!-- Marks an email delivery as completed and stores the provider message identifier. -->
+      <Update_Notification_007><![CDATA[
+        UPDATE
+          public."Notifications"
+        SET
+          "DeliveryStatus" = 'DeliveredEmail',
+          "DeliveredAtUtc" = COALESCE("DeliveredAtUtc", CURRENT_TIMESTAMP),
+          "EmailProviderMessageId" = @ProviderMessageId,
+          "LastError" = NULL,
+          "LockedBy" = NULL,
+          "LockedUntilUtc" = NULL,
+          "Version" = "Version" + 1
+        WHERE
+              "NotificationId" = @NotificationId
+          AND "Version" = @ExpectedVersion
+          AND "LockedBy" = @WorkerId
+          AND "DeliveryStatus" = 'SendingEmail';
+      ]]></Update_Notification_007>
+
+      <!-- Schedules a retry after a failed delivery and records the next attempt time and error code. -->
+      <Update_Notification_008><![CDATA[
+        UPDATE
+          public."Notifications"
+        SET
+          "DeliveryStatus" = 'RetryScheduled',
+          "NextAttemptAtUtc" = @NextAttemptAtUtc,
+          "AckDeadlineUtc" = NULL,
+          "LastError" = @ErrorCode,
+          "LockedBy" = NULL,
+          "LockedUntilUtc" = NULL,
+          "Version" = "Version" + 1
+        WHERE
+              "NotificationId" = @NotificationId
+          AND "Version" = @ExpectedVersion
+          AND "LockedBy" = @WorkerId
+          AND "DeliveryStatus" NOT IN ('DeliveredInApp', 'DeliveredEmail', 'Failed');
+      ]]></Update_Notification_008>
+
+      <!-- Permanently marks a delivery as failed and records the final error code. -->
+      <Update_Notification_009><![CDATA[
+        UPDATE
+          public."Notifications"
+        SET
+          "DeliveryStatus" = 'Failed',
+          "NextAttemptAtUtc" = NULL,
+          "AckDeadlineUtc" = NULL,
+          "LastError" = @ErrorCode,
+          "LockedBy" = NULL,
+          "LockedUntilUtc" = NULL,
+          "Version" = "Version" + 1
+        WHERE
+              "NotificationId" = @NotificationId
+          AND "Version" = @ExpectedVersion
+          AND "LockedBy" = @WorkerId
+          AND "DeliveryStatus" NOT IN ('DeliveredInApp', 'DeliveredEmail');
+      ]]></Update_Notification_009>
+
+      <!-- Deletes deliveries that were successfully completed before the retention cutoff. -->
+      <Delete_Notification_001><![CDATA[
+        DELETE FROM public."Notifications"
+        WHERE
+              "DeliveryStatus" IN ('DeliveredInApp', 'DeliveredEmail')
+          AND "DeliveredAtUtc" < @CutoffUtc;
+      ]]></Delete_Notification_001>
+    </Notifications>
+  </SqlQueries>
+</configuration>

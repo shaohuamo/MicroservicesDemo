@@ -8,7 +8,9 @@ namespace ProductsMicroservice.Core.ServiceContracts
         /// Adds (inserts) product into the table using products repository
         /// </summary>
         /// <param name="productAddRequest">Product to insert</param>
-        /// <returns>Product after inserting or null if unsuccessful</returns>
-        Task<ProductResponse?> AddProductAsync(ProductAddRequest productAddRequest);
+        /// <returns>Product after inserting.</returns>
+        Task<ProductAddResult> AddProductAsync(
+            ProductAddRequest productAddRequest,
+            Guid idempotencyKey);
     }
 }

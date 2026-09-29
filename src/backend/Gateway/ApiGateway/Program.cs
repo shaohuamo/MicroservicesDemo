@@ -1,16 +1,11 @@
 using ApiGateway.ConsulServiceBuilder;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+using ApiGateway.Extensions;
+using ApiGateway.Middleware;
+using ApiGateway.Health;
 using Ocelot.DependencyInjection;
 using Ocelot.Middleware;
 using Ocelot.Provider.Consul;
-using OpenTelemetry;
-using OpenTelemetry.Logs;
-using OpenTelemetry.Metrics;
-using OpenTelemetry.Resources;
-using OpenTelemetry.Trace;
 using StackExchange.Redis;
-using System.Diagnostics;
-using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -29,63 +24,7 @@ else
 
 builder.Configuration.AddEnvironmentVariables();
 
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options =>
-    {
-        options.Authority = builder.Configuration["Authentication:Authority"];
-        options.Audience = builder.Configuration["Authentication:Audience"] ?? "gateway-api";
-        options.RequireHttpsMetadata = builder.Configuration.GetValue("Authentication:RequireHttpsMetadata", false);
-        options.MapInboundClaims = false;
-        options.Events = new JwtBearerEvents
-        {
-            OnTokenValidated = async context =>
-            {
-                var jti = GetClaimValue(context.Principal, "jti");
-
-                if (string.IsNullOrWhiteSpace(jti))
-                {
-                    return;
-                }
-
-                var redis = context.HttpContext.RequestServices.GetService<IConnectionMultiplexer>();
-
-                if (redis is null)
-                {
-                    return;
-                }
-
-                try
-                {
-                    var denylistPrefix = context.HttpContext.RequestServices
-                        .GetRequiredService<IConfiguration>()["Authentication:AccessTokenDenylistPrefix"]
-                        ?? "admin-web:access-token-denylist";
-                    var isDenied = await redis.GetDatabase().KeyExistsAsync($"{denylistPrefix}:{jti}");
-
-                    if (isDenied)
-                    {
-                        context.Fail("Access token has been revoked.");
-                    }
-                }
-                catch
-                {
-                    var failClosed = context.HttpContext.RequestServices
-                        .GetRequiredService<IConfiguration>()
-                        .GetValue("Authentication:DenylistFailClosed", true);
-
-                    if (failClosed)
-                    {
-                        context.Fail("Access token denylist is unavailable.");
-                    }
-                }
-            }
-        };
-
-        var metadataAddress = builder.Configuration["Authentication:MetadataAddress"];
-        if (!string.IsNullOrWhiteSpace(metadataAddress))
-        {
-            options.MetadataAddress = metadataAddress;
-        }
-    });
+builder.Services.AddGatewayAuthentication(builder.Configuration);
 
 var redisConnectionString = builder.Configuration["Authentication:DenylistRedisConnectionString"];
 if (!string.IsNullOrWhiteSpace(redisConnectionString))
@@ -102,28 +41,7 @@ if (!string.IsNullOrWhiteSpace(redisConnectionString))
     });
 }
 
-builder.Services.AddOpenTelemetry()
-    .ConfigureResource(resource => resource.AddService("Ocelot.ApiGateway"))
-    .WithLogging(logging => logging.AddOtlpExporter(), options =>
-    {
-        options.IncludeFormattedMessage = true;
-        options.IncludeScopes = true;
-    })
-    .WithTracing(tracerBuilder => tracerBuilder
-        .AddAspNetCoreInstrumentation(options =>
-        {
-            options.Filter = context =>
-                !IsNoisyGatewayPath(context.Request.Path);
-        })
-        .AddHttpClientInstrumentation()
-        .AddOtlpExporter())
-    .WithMetrics(meterBuilder => meterBuilder
-        .AddProcessInstrumentation()
-        .AddRuntimeInstrumentation()
-        .AddAspNetCoreInstrumentation()
-        .AddHttpClientInstrumentation()
-        .SetExemplarFilter(ExemplarFilterType.TraceBased)
-        .AddOtlpExporter());
+builder.AddObservability();
 
 if (useConsul)
 {
@@ -138,45 +56,28 @@ else
 }
 
 // Add health checks for Kubernetes probes
-builder.Services.AddHealthChecks();
+builder.Services.AddHealthChecks()
+    .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy(), tags: ["live"]);
+var denylistRedisEnabled = !string.IsNullOrWhiteSpace(redisConnectionString)
+    && builder.Configuration.GetValue("Authentication:DenylistFailClosed", true);
+if (denylistRedisEnabled)
+{
+    builder.Services.AddHealthChecks()
+        .AddCheck<GatewayRedisHealthCheck>("gateway_denylist_redis", tags: ["ready"], timeout: TimeSpan.FromSeconds(5));
+}
 
 var app = builder.Build();
 app.MapHealthChecks("/health");
-app.UseAuthentication();
-app.Use(async (context, next) =>
+app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
 {
-    context.Request.Headers.Remove("X-User-Id");
-
-    var userId = GetClaimValue(context.User, "sub")
-                 ?? GetClaimValue(context.User, ClaimTypes.NameIdentifier)
-                 ?? GetClaimValue(context.User, "nameidentifier");
-
-    if (!string.IsNullOrEmpty(userId))
-    {
-        context.Request.Headers["X-User-Id"] = userId;
-        Baggage.SetBaggage("user_id", userId);
-        Activity.Current?.SetTag("user_id", userId);
-    }
-
-    await next();
+    Predicate = registration => registration.Tags.Contains("live")
 });
+app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = registration => registration.Tags.Contains("ready")
+});
+app.UseAuthentication();
+app.UseIdentityHeaders();
 await app.UseOcelot();
 
 app.Run();
-
-static string? GetClaimValue(ClaimsPrincipal? user, string claimType)
-{
-    return user?.FindFirst(claimType)?.Value;
-}
-
-static bool IsNoisyGatewayPath(PathString path)
-{
-    return path == "/"
-        || path.StartsWithSegments("/favicon.ico")
-        || path.StartsWithSegments("/___proxy_subdomain_cpanel")
-        || path.StartsWithSegments("/wp-json")
-        || path.StartsWithSegments("/xmlrpc.php")
-        || path.StartsWithSegments("/console")
-        || path == "/server"
-        || path.StartsWithSegments("/server-status");
-}

@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { NextRequest } from "next/server";
 import { POST } from "@/app/api/[...path]/route";
 
+type RouteContext = { params: Promise<{ path: string[] }> };
+
 vi.mock("@/auth", () => ({
-  auth: vi.fn(async () => ({
-    accessToken: "access-token",
-  })),
+  auth: vi.fn(async (handler: (request: NextRequest & { auth: { accessToken: string } }, context: RouteContext) => Promise<Response>) =>
+    (request: NextRequest, context: RouteContext) =>
+    handler(Object.assign(request, { auth: { accessToken: "access-token" } }), context)),
 }));
 
 const context = {
@@ -73,7 +75,7 @@ describe("admin API proxy CSRF protection", () => {
         referer: "https://250669.xyz/products",
         "content-type": "application/json",
       },
-      body: JSON.stringify({ productName: "Coffee" }),
+      body: JSON.stringify({ displayName: "Coffee" }),
     });
     expect(request.headers.get("referer")).toBe("https://250669.xyz/products");
 
@@ -108,7 +110,7 @@ describe("admin API proxy CSRF protection", () => {
           referer: "https://250669.xyz/products",
           cookie: "authjs.session-token=secret; MicroservicesDemo.Culture=c%3Den",
         },
-        body: JSON.stringify({ productName: "Coffee" }),
+        body: JSON.stringify({ displayName: "Coffee" }),
       }),
       context,
     );
@@ -118,5 +120,29 @@ describe("admin API proxy CSRF protection", () => {
     const headers = init?.headers as Headers;
     expect(headers.get("cookie")).toBeNull();
     expect(headers.get("authorization")).toBe("Bearer access-token");
+  });
+
+  it("forwards the idempotency key unchanged", async () => {
+    vi.stubEnv("API_GATEWAY_INTERNAL_URL", "http://apigateway");
+    vi.stubEnv("FRONTEND_PUBLIC_URL", "https://250669.xyz");
+    const key = "7f277273-b334-47f9-8b59-d37aa3473665";
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ productId: "p1" }), { status: 201 }),
+    );
+
+    await POST(
+      createProxyRequest({
+        headers: {
+          referer: "https://250669.xyz/products",
+          "content-type": "application/json",
+          "idempotency-key": key,
+        },
+        body: JSON.stringify({ displayName: "Coffee" }),
+      }),
+      context,
+    );
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect((init?.headers as Headers).get("idempotency-key")).toBe(key);
   });
 });

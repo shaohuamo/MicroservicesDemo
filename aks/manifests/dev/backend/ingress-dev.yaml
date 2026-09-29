@@ -8,6 +8,8 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-buffer-size: "32k"
     nginx.ingress.kubernetes.io/proxy-buffers-number: "8"
     nginx.ingress.kubernetes.io/proxy-busy-buffers-size: "64k"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/rate-limit: "1000"
     nginx.ingress.kubernetes.io/rate-limit-window: "1m"
@@ -82,5 +84,5 @@ spec:
                 port:
                   number: 16686
 
-    # NOTE: products-microservice and test-microservice are intentionally NOT exposed
+    # NOTE: products-microservice and notifications-microservice are intentionally NOT exposed
     # externally. All backend API traffic must go through the API Gateway.

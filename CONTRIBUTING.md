@@ -248,7 +248,7 @@ Four independent workflows, each triggered only when its respective service chan
 |----------|------|---------------|--------------|
 | **Products Microservice** | `.github/workflows/ci-products.yml` | `src/backend/Services/Products/**`, `src/backend/BuildingBlocks/**`, `tests/ProductsServiceUnitTests/**` | `<user>/productmicroservice:latest`, `<user>/productmicroservice:sha-<commit>` |
 | **API Gateway** | `.github/workflows/ci-gateway.yml` | `src/backend/Gateway/**` | `<user>/apigateway:latest`, `<user>/apigateway:sha-<commit>` |
-| **Test Microservice** | `.github/workflows/ci-test-microservice.yml` | `src/backend/Services/Test/**`, `src/backend/BuildingBlocks/**` | `<user>/testmicroservice:latest`, `<user>/testmicroservice:sha-<commit>` |
+| **Notifications Microservice** | `.github/workflows/ci-notifications-microservice.yml` | `src/backend/Services/Notifications/**`, `src/backend/BuildingBlocks/**` | `<user>/notificationsmicroservice:latest`, `<user>/notificationsmicroservice:sha-<commit>` |
 | **Frontend (admin-web)** | `.github/workflows/ci-frontend.yml` | `src/frontend/admin-web/**` | `<user>/admin-web:latest`, `<user>/admin-web:sha-<commit>` |
 
 **Key features:**
@@ -274,7 +274,7 @@ cp .env.example .env
 # Edit .env to set image tags (use sha-<commit> from GitHub Actions logs)
 # PRODUCTS_IMAGE_TAG=sha-a1b2c3d4
 # APIGATEWAY_IMAGE_TAG=sha-a1b2c3d4
-# TESTMICROSERVICE_IMAGE_TAG=sha-a1b2c3d4
+# NOTIFICATIONS_IMAGE_TAG=sha-a1b2c3d4
 # ADMINWEB_IMAGE_TAG=sha-a1b2c3d4
 
 docker compose -f docker-compose.yml --env-file .env up -d

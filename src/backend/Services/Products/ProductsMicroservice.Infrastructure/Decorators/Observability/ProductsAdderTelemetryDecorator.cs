@@ -1,7 +1,9 @@
-﻿using ProductsMicroservice.Core.DTO;
-using ProductsMicroservice.Core.ServiceContracts;
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
+using ProductsMicroservice.Core.Domain.Exceptions;
+using ProductsMicroservice.Core.Diagnostics;
+using ProductsMicroservice.Core.DTO;
+using ProductsMicroservice.Core.ServiceContracts;
 
 namespace ProductsMicroservice.Infrastructure.Decorators.Observability;
 
@@ -10,27 +12,33 @@ public class ProductsAdderTelemetryDecorator : IProductsAdderService
     private readonly IProductsAdderService _inner;
     private readonly ILogger<ProductsAdderTelemetryDecorator> _logger;
 
-    public ProductsAdderTelemetryDecorator(IProductsAdderService inner,
+    public ProductsAdderTelemetryDecorator(
+        IProductsAdderService inner,
         ILogger<ProductsAdderTelemetryDecorator> logger)
     {
         _inner = inner;
         _logger = logger;
     }
 
-    public async Task<ProductResponse?> AddProductAsync(ProductAddRequest productAddRequest)
+    public async Task<ProductAddResult> AddProductAsync(
+        ProductAddRequest productAddRequest,
+        Guid idempotencyKey)
     {
-        ArgumentNullException.ThrowIfNull(productAddRequest);//defend against null input
+        ArgumentNullException.ThrowIfNull(productAddRequest);
 
-        //010-000:trace instrumentation
         var activity = Activity.Current;
-        activity?.SetTag("product.name", productAddRequest.ProductName);
+        var stopwatch = Stopwatch.StartNew();
+
+        // Trace Instrumentation
+        activity?.SetTag("idempotency.key", idempotencyKey.ToString("D"));
+        activity?.SetTag("idempotency.operation", "AddProduct");
+        activity?.SetTag("product.name", productAddRequest.DisplayName);
         activity?.SetTag("product.unitPrice", productAddRequest.UnitPrice);
         activity?.SetTag("product.quantityInStock", productAddRequest.QuantityInStock);
 
-        //020-000:log context enrichment
         var scopeItems = new Dictionary<string, object>
         {
-            ["ProductName"] = productAddRequest.ProductName!,
+            ["DisplayName"] = productAddRequest.DisplayName!,
             ["UnitPrice"] = productAddRequest.UnitPrice!,
             ["QuantityInStock"] = productAddRequest.QuantityInStock!
         };
@@ -40,28 +48,44 @@ public class ProductsAdderTelemetryDecorator : IProductsAdderService
             try
             {
                 _logger.LogInformation("Entering AddProduct pipeline");
+                ProductAddResult result = await _inner.AddProductAsync(
+                    productAddRequest, idempotencyKey);
+                stopwatch.Stop();
 
-                //030-000: Call the inner service to add the product
-                var addedProduct = await _inner.AddProductAsync(productAddRequest!);
-
-                if (addedProduct != null)
+                // Metric Instrumentation
+                DiagnosticsConfig.AddProductHistogram.Record(stopwatch.Elapsed.TotalSeconds);
+                if (!result.IsReplay)
                 {
-                    activity?.SetTag("product.id", addedProduct.ProductId);
-                    using (_logger.BeginScope(new Dictionary<string, object> { ["ProductId"] = addedProduct.ProductId }))
-                    {
-                        _logger.LogInformation("Product added successfully in pipeline.");
-                    }
+                    DiagnosticsConfig.ProductsCounter.Add(1,
+                        new KeyValuePair<string, object?>("product.id", result.Product.ProductId),
+                        new("status", "success"));
                 }
+                // Trace Instrumentation
+                activity?.SetTag("product.id", result.Product.ProductId);
+                activity?.SetTag("product.operation.committed", true);
+                activity?.SetTag("idempotency.outcome",
+                    result.IsReplay ? "replayed" : "created");
+                activity?.SetTag("idempotency.replayed", result.IsReplay);
 
-                return addedProduct;
+                _logger.LogInformation(
+                    "Product and its outbox notification committed in {ElapsedMs} ms",
+                    stopwatch.Elapsed.TotalMilliseconds);
+                return result;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in AddProduct pipeline for {ProductName}", productAddRequest!.ProductName);
+                stopwatch.Stop();
+                if (ex is IdempotencyPayloadConflictException)
+                {
+                    activity?.SetTag("idempotency.outcome", "payload_conflict");
+                    activity?.SetTag("idempotency.replayed", false);
+                }
+                _logger.LogError(ex, "Error in AddProduct pipeline for {DisplayName}",
+                    productAddRequest.DisplayName);
+                // Trace Instrumentation
                 activity?.AddException(ex);
                 activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-
-                throw;//exception will be handled by ExceptionHandlingMiddleware
+                throw;
             }
         }
     }

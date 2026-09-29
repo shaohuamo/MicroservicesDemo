@@ -11,6 +11,7 @@ namespace ProductsMicroservice.Tests;
 
 public class ProductsAdderCachingDecoratorTests
 {
+    private readonly Guid _key = Guid.NewGuid();
     private readonly Mock<IProductsAdderService> _innerMock = new();
     private readonly Mock<IDistributedCache> _cacheMock = new();
     private readonly Mock<ILogger<ProductsAdderCachingDecorator>> _loggerMock = new();
@@ -27,7 +28,7 @@ public class ProductsAdderCachingDecoratorTests
     [Fact]
     public async Task AddProductAsync_ShouldThrow_WhenRequestIsNull()
     {
-        Func<Task> act = () => _decorator.AddProductAsync(null!);
+        Func<Task> act = () => _decorator.AddProductAsync(null!, _key);
 
         await act.Should().ThrowAsync<ArgumentNullException>();
     }
@@ -37,25 +38,27 @@ public class ProductsAdderCachingDecoratorTests
     {
         var request = new ProductAddRequest();
         var response = new ProductResponse(Guid.NewGuid(), "Product", 10, 1);
-        _innerMock.Setup(x => x.AddProductAsync(request)).ReturnsAsync(response);
+        var addResult = new ProductAddResult(response, false);
+        _innerMock.Setup(x => x.AddProductAsync(request, _key)).ReturnsAsync(addResult);
 
-        var result = await _decorator.AddProductAsync(request);
+        var result = await _decorator.AddProductAsync(request, _key);
 
-        result.Should().BeSameAs(response);
+        result.Should().BeSameAs(addResult);
         _cacheMock.Verify(x => x.RemoveAsync(
             ProductCacheKeys.AllProductsKey,
             It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
-    public async Task AddProductAsync_ShouldNotInvalidateCache_WhenInnerReturnsNull()
+    public async Task AddProductAsync_ShouldNotInvalidateCache_WhenInnerThrows()
     {
         var request = new ProductAddRequest();
-        _innerMock.Setup(x => x.AddProductAsync(request)).ReturnsAsync((ProductResponse?)null);
+        _innerMock.Setup(x => x.AddProductAsync(request, _key))
+            .ThrowsAsync(new InvalidOperationException("save failed"));
 
-        var result = await _decorator.AddProductAsync(request);
+        Func<Task> action = () => _decorator.AddProductAsync(request, _key);
 
-        result.Should().BeNull();
+        await action.Should().ThrowAsync<InvalidOperationException>();
         _cacheMock.Verify(x => x.RemoveAsync(
             It.IsAny<string>(),
             It.IsAny<CancellationToken>()), Times.Never);
@@ -66,14 +69,29 @@ public class ProductsAdderCachingDecoratorTests
     {
         var request = new ProductAddRequest();
         var response = new ProductResponse();
-        _innerMock.Setup(x => x.AddProductAsync(request)).ReturnsAsync(response);
+        var addResult = new ProductAddResult(response, false);
+        _innerMock.Setup(x => x.AddProductAsync(request, _key)).ReturnsAsync(addResult);
         _cacheMock.Setup(x => x.RemoveAsync(
                 ProductCacheKeys.AllProductsKey,
                 It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("cache unavailable"));
 
-        var result = await _decorator.AddProductAsync(request);
+        var result = await _decorator.AddProductAsync(request, _key);
 
-        result.Should().BeSameAs(response);
+        result.Should().BeSameAs(addResult);
+    }
+
+    [Fact]
+    public async Task AddProductAsync_ShouldNotInvalidateCache_WhenResponseIsReplay()
+    {
+        var request = new ProductAddRequest();
+        var addResult = new ProductAddResult(new ProductResponse(), true);
+        _innerMock.Setup(x => x.AddProductAsync(request, _key)).ReturnsAsync(addResult);
+
+        var result = await _decorator.AddProductAsync(request, _key);
+
+        result.Should().BeSameAs(addResult);
+        _cacheMock.Verify(x => x.RemoveAsync(
+            It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 }

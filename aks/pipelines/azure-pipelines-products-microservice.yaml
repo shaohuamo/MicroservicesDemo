@@ -16,6 +16,13 @@ trigger:
     - src/backend/BuildingBlocks/CommonService/**
     - tests/ProductsServiceUnitTests/**
     - aks/manifests/dev/backend/products-microservice-dev.yaml
+    - aks/manifests/qa/backend/products-microservice-qa.yaml
+    - aks/manifests/uat/backend/products-microservice-uat.yaml
+    - aks/manifests/staging/backend/products-microservice-staging.yaml
+    - aks/manifests/prod/backend/products-microservice-prod.yaml
+    - aks/manifests/shared/backend/products-database-migration.yaml
+    - aks/manifests/shared/backend/products-gateway-network-policy.yaml
+    - aks/pipelines/templates/products-migration-job-steps.yaml
     - aks/pipelines/azure-pipelines-products-microservice.yaml
 
 resources:
@@ -98,8 +105,9 @@ stages:
 
 - stage: DeployToDev
   displayName: Deploy to Dev
+  lockBehavior: sequential
   dependsOn: Test
-  condition: and(succeeded('Build'), eq(variables['Build.SourceBranch'], 'refs/heads/dev'))
+  condition: and(succeeded('Test'), eq(variables['Build.SourceBranch'], 'refs/heads/dev'))
   jobs:
   - deployment: DeploymentToDev
     displayName: Deployment to Dev Environment
@@ -131,7 +139,6 @@ stages:
                 "rabbitmq-user" = "guest"
                 "rabbitmq-password" = $env:PRODUCTS_RABBITMQ_PASSWORD
                 "redis-connection-string" = $env:PRODUCTS_REDIS_CONNECTION_STRING
-                "servicebus-connection-string" = $env:PRODUCTS_SERVICEBUS_CONNECTION_STRING
               }
 
               $lines = @(
@@ -154,7 +161,6 @@ stages:
               PRODUCTS_POSTGRES_PASSWORD: $(postgres-password)
               PRODUCTS_RABBITMQ_PASSWORD: $(rabbitmq-password)
               PRODUCTS_REDIS_CONNECTION_STRING: $(redis-connection-string)
-              PRODUCTS_SERVICEBUS_CONNECTION_STRING: $(servicebus-connection-string)
 
           - task: KubernetesManifest@1
             displayName: Apply Products secrets in dev namespace
@@ -165,6 +171,20 @@ stages:
               namespace: dev
               manifests: |
                 $(Pipeline.Workspace)/products-secrets-dev.yaml
+
+          - template: templates/products-migration-job-steps.yaml
+            parameters:
+              namespace: dev
+              kubernetesServiceConnection: dev-microservicesdemo-aks-cluster-dev-1778160743494
+
+          - task: KubernetesManifest@1
+            displayName: Restrict Products ingress to Gateway in dev
+            inputs:
+              action: deploy
+              connectionType: kubernetesServiceConnection
+              kubernetesServiceConnection: dev-microservicesdemo-aks-cluster-dev-1778160743494
+              namespace: dev
+              manifests: aks/manifests/shared/backend/products-gateway-network-policy.yaml
 
           - task: KubernetesManifest@1
             displayName: Deploy Products microservice to dev namespace in kubernetes
@@ -179,6 +199,7 @@ stages:
 
 - stage: DeployToQA
   displayName: Deploy to QA
+  lockBehavior: sequential
   dependsOn: Test
   condition: and(succeeded('Test'), eq(variables['Build.SourceBranch'], 'refs/heads/qa'))
   jobs:
@@ -212,7 +233,20 @@ stages:
                 --from-literal=rabbitmq-user=guest
                 --from-literal=rabbitmq-password=$(rabbitmq-password)
                 --from-literal=redis-connection-string=$(redis-connection-string)
-                --from-literal=servicebus-connection-string=$(servicebus-connection-string)
+
+          - template: templates/products-migration-job-steps.yaml
+            parameters:
+              namespace: qa
+              kubernetesServiceConnection: qa-microservicesdemo-aks-cluster-qa-1778160953610
+
+          - task: KubernetesManifest@1
+            displayName: Restrict Products ingress to Gateway in qa
+            inputs:
+              action: deploy
+              connectionType: kubernetesServiceConnection
+              kubernetesServiceConnection: qa-microservicesdemo-aks-cluster-qa-1778160953610
+              namespace: qa
+              manifests: aks/manifests/shared/backend/products-gateway-network-policy.yaml
 
           - task: KubernetesManifest@1
             displayName: Deploy Products microservice to qa namespace in kubernetes
@@ -227,6 +261,7 @@ stages:
 
 - stage: DeployToUAT
   displayName: Deploy to UAT
+  lockBehavior: sequential
   dependsOn: Test
   condition: and(succeeded('Test'), eq(variables['Build.SourceBranch'], 'refs/heads/uat'))
   jobs:
@@ -260,7 +295,20 @@ stages:
                 --from-literal=rabbitmq-user=guest
                 --from-literal=rabbitmq-password=$(rabbitmq-password)
                 --from-literal=redis-connection-string=$(redis-connection-string)
-                --from-literal=servicebus-connection-string=$(servicebus-connection-string)
+
+          - template: templates/products-migration-job-steps.yaml
+            parameters:
+              namespace: uat
+              kubernetesServiceConnection: uat-microservicesdemo-aks-cluster-uat-1778161095509
+
+          - task: KubernetesManifest@1
+            displayName: Restrict Products ingress to Gateway in uat
+            inputs:
+              action: deploy
+              connectionType: kubernetesServiceConnection
+              kubernetesServiceConnection: uat-microservicesdemo-aks-cluster-uat-1778161095509
+              namespace: uat
+              manifests: aks/manifests/shared/backend/products-gateway-network-policy.yaml
 
           - task: KubernetesManifest@1
             displayName: Deploy Products microservice to uat namespace in kubernetes
@@ -275,6 +323,7 @@ stages:
 
 - stage: DeployToStaging
   displayName: Deploy to Staging
+  lockBehavior: sequential
   dependsOn: Test
   condition: and(succeeded('Test'), eq(variables['Build.SourceBranch'], 'refs/heads/staging'))
   jobs:
@@ -308,7 +357,20 @@ stages:
                 --from-literal=rabbitmq-user=guest
                 --from-literal=rabbitmq-password=$(rabbitmq-password)
                 --from-literal=redis-connection-string=$(redis-connection-string)
-                --from-literal=servicebus-connection-string=$(servicebus-connection-string)
+
+          - template: templates/products-migration-job-steps.yaml
+            parameters:
+              namespace: staging
+              kubernetesServiceConnection: staging-microservicesdemo-aks-cluster-staging-1778161154539
+
+          - task: KubernetesManifest@1
+            displayName: Restrict Products ingress to Gateway in staging
+            inputs:
+              action: deploy
+              connectionType: kubernetesServiceConnection
+              kubernetesServiceConnection: staging-microservicesdemo-aks-cluster-staging-1778161154539
+              namespace: staging
+              manifests: aks/manifests/shared/backend/products-gateway-network-policy.yaml
 
           - task: KubernetesManifest@1
             displayName: Deploy Products microservice to staging namespace in kubernetes
@@ -323,6 +385,7 @@ stages:
 
 - stage: DeployToProduction
   displayName: Deploy to Production
+  lockBehavior: sequential
   dependsOn: Test
   condition: and(succeeded('Test'), eq(variables['Build.SourceBranch'], 'refs/heads/prod'))
   jobs:
@@ -356,7 +419,20 @@ stages:
                 --from-literal=rabbitmq-user=guest
                 --from-literal=rabbitmq-password=$(rabbitmq-password)
                 --from-literal=redis-connection-string=$(redis-connection-string)
-                --from-literal=servicebus-connection-string=$(servicebus-connection-string)
+
+          - template: templates/products-migration-job-steps.yaml
+            parameters:
+              namespace: prod
+              kubernetesServiceConnection: prod-microservicesdemo-aks-cluster-prod-1778161221255
+
+          - task: KubernetesManifest@1
+            displayName: Restrict Products ingress to Gateway in prod
+            inputs:
+              action: deploy
+              connectionType: kubernetesServiceConnection
+              kubernetesServiceConnection: prod-microservicesdemo-aks-cluster-prod-1778161221255
+              namespace: prod
+              manifests: aks/manifests/shared/backend/products-gateway-network-policy.yaml
 
           - task: KubernetesManifest@1
             displayName: Deploy Products microservice to prod namespace in kubernetes

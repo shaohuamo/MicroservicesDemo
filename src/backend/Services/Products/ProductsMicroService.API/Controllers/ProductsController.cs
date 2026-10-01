@@ -1,9 +1,8 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using ProductsMicroservice.Core.DTO;
 using ProductsMicroservice.Core.ServiceContracts;
 using System.ComponentModel.DataAnnotations;
 using ProductsMicroservice.Core.Domain.Exceptions;
-using System.Diagnostics;
 
 namespace ProductsMicroService.API.Controllers
 {
@@ -84,21 +83,29 @@ namespace ProductsMicroService.API.Controllers
                 return BadRequest("The request body cannot be empty and must be a valid JSON.");
             }
 
-            if (!TryParseCanonicalUuidV4(idempotencyKey, out Guid parsedIdempotencyKey))
-            {
-                throw new IdempotencyKeyInvalidException();
-            }
+            Guid parsedIdempotencyKey = ParseIdempotencyKey(idempotencyKey);
 
             ProductAddResult result = await _productsAdderService.AddProductAsync(
                 productAddRequest, parsedIdempotencyKey);
 
-            Response.Headers["Idempotency-Outcome"] = result.IsReplay ? "replayed" : "created";
-            Response.Headers["Idempotency-Replayed"] = result.IsReplay ? "true" : "false";
+            SetIdempotencyHeaders(result.IsReplay, "created");
 
             //add location header in response like below
             //api/products/search/product-id/xxxxxxxxxxxxxxxxxxx
             return CreatedAtAction(nameof(GetProductByProductIdAsync),
                 new{ productId = result.Product.ProductId}, result.Product);
+        }
+
+        private void SetIdempotencyHeaders(bool isReplay, string outcome)
+        {
+            Response.Headers["Idempotency-Outcome"] = isReplay ? "replayed" : outcome;
+            Response.Headers["Idempotency-Replayed"] = isReplay ? "true" : "false";
+        }
+
+        private static Guid ParseIdempotencyKey(string? value)
+        {
+            if (!TryParseCanonicalUuidV4(value, out Guid key)) throw new IdempotencyKeyInvalidException();
+            return key;
         }
 
         private static bool TryParseCanonicalUuidV4(
@@ -114,17 +121,22 @@ namespace ProductsMicroService.API.Controllers
         /// update a product
         /// </summary>
         /// <param name="productUpdateRequest"></param>
+        /// <param name="idempotencyKey">A canonical UUID v4 supplied by the client.</param>
         /// <returns></returns>
         [HttpPut]
-        public async Task<IActionResult> UpdateProductAsync(ProductUpdateRequest? productUpdateRequest)
+        public async Task<IActionResult> UpdateProductAsync(
+            ProductUpdateRequest? productUpdateRequest,
+            [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey)
         {
             if (productUpdateRequest == null)
             {
                 return BadRequest("The request body cannot be empty and must be a valid JSON.");
             }
 
-            var updatedProductResponse = await _productsUpdaterService.UpdateProductAsync(productUpdateRequest);
-            return Ok(updatedProductResponse);
+            ProductUpdateResult result = await _productsUpdaterService.UpdateProductAsync(
+                productUpdateRequest, ParseIdempotencyKey(idempotencyKey));
+            SetIdempotencyHeaders(result.IsReplay, "updated");
+            return Ok(result.Product);
         }
 
 
@@ -134,19 +146,23 @@ namespace ProductsMicroService.API.Controllers
         /// </summary>
         /// <param name="productId"></param>
         /// <param name="request">Contains the version originally read by the client.</param>
+        /// <param name="idempotencyKey">A canonical UUID v4 supplied by the client.</param>
         /// <returns></returns>
         [HttpDelete("{productId:guid}")]
         public async Task<IActionResult> DeleteProductAsync(
             [Required] Guid? productId,
-            [FromBody] ProductDeleteRequest? request)
+            [FromBody] ProductDeleteRequest? request,
+            [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey)
         {
             if (request is null)
             {
                 return BadRequest("The request body cannot be empty and must be a valid JSON.");
             }
 
-            await _productsDeleterService.DeleteProductAsync(productId!.Value, request.Version);
-            return Ok(true);
+            ProductDeleteResult result = await _productsDeleterService.DeleteProductAsync(
+                productId!.Value, request.Version, ParseIdempotencyKey(idempotencyKey));
+            SetIdempotencyHeaders(result.IsReplay, "deleted");
+            return Ok(result.Deleted);
         }
     }
 }

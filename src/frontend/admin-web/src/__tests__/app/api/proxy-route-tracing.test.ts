@@ -9,6 +9,11 @@ type RouteContext = { params: Promise<{ path: string[] }> };
 
 const mocks = vi.hoisted(() => ({ auth: vi.fn() }));
 vi.mock("@/auth", () => ({ auth: mocks.auth }));
+vi.mock("@/lib/auth/gateway-session-proof", () => ({
+  GATEWAY_PROOF_HEADERS: [],
+  getRefreshTokenRecordId: vi.fn(async () => "11111111-1111-1111-1111-111111111111"),
+  applyGatewaySessionProof: vi.fn(),
+}));
 
 import { GET } from "@/app/api/[...path]/route";
 

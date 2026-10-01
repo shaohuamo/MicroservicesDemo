@@ -8,6 +8,7 @@ public sealed class DeliveryOptions
     public int BatchSize { get; set; } = 50;
     public int LeaseSeconds { get; set; } = 30;
     public int SseAckDeadlineSeconds { get; set; } = 5;
+    public int InAppGraceSeconds { get; set; } = 20;
     public int MaxSseAttempts { get; set; } = 2;
     public int MaxAttempts { get; set; } = 5;
     public int InitialRetryDelaySeconds { get; set; } = 2;

@@ -66,10 +66,11 @@ public class ProductsAdderTelemetryDecorator : IProductsAdderService
                 activity?.SetTag("idempotency.outcome",
                     result.IsReplay ? "replayed" : "created");
                 activity?.SetTag("idempotency.replayed", result.IsReplay);
+                activity?.SetTag("idempotency.source", result.Source.ToString().ToLowerInvariant());
 
                 _logger.LogInformation(
-                    "Product and its outbox notification committed in {ElapsedMs} ms",
-                    stopwatch.Elapsed.TotalMilliseconds);
+                    "Product operation {Outcome} in {ElapsedMs} ms",
+                    result.IsReplay ? "replayed" : "committed", stopwatch.Elapsed.TotalMilliseconds);
                 return result;
             }
             catch (Exception ex)

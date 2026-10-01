@@ -7,9 +7,11 @@ import { ProductFormDialog } from "@/components/products/product-form-dialog";
 import { DeleteConfirmDialog } from "@/components/products/delete-confirm-dialog";
 import type { ProductResponse } from "@/types/product";
 import { useI18n } from "@/lib/i18n/provider";
+import { isServiceUnavailableError } from "@/lib/api/service-availability";
+import { ServiceUnavailablePage } from "@/components/common/service-unavailable-page";
 
 export default function ProductsPage() {
-  const { data: products, isLoading, error } = useProducts();
+  const { data: products, isLoading, isFetching, error, refetch } = useProducts();
   const { locale, t } = useI18n();
   const [formOpen, setFormOpen] = useState(false);
   const [formSessionId, setFormSessionId] = useState(0);
@@ -32,6 +34,15 @@ export default function ProductsPage() {
   function handleFormClose(open: boolean) {
     setFormOpen(open);
     if (!open) setEditProduct(undefined);
+  }
+
+  if (error && isServiceUnavailableError(error)) {
+    return (
+      <ServiceUnavailablePage
+        onRetry={() => { void refetch(); }}
+        retrying={isFetching}
+      />
+    );
   }
 
   const totalProducts = products?.length ?? 0;

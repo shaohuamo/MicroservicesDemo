@@ -78,4 +78,38 @@ public class NotificationsControllerTests
         result.Result.Should().BeOfType<OkObjectResult>();
         _updaterService.VerifyAll();
     }
+
+    [Fact]
+    public async Task Replay_WithoutCursor_UsesAuthenticatedSubjectAndFullRange()
+    {
+        var page = new NotificationReplayPage([], null, 100);
+        _getterService.Setup(value => value.GetReplayAsync("current-user", null, 100, default)).ReturnsAsync(page);
+
+        (await _controller.Replay()).Result.Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(page);
+        _getterService.VerifyAll();
+    }
+
+    [Fact]
+    public async Task Replay_WithCursor_PassesDecodedBoundary()
+    {
+        var cursor = new NotificationReplayCursor(100, DateTimeOffset.UtcNow, 53);
+        var page = new NotificationReplayPage([], null, 100);
+        _getterService.Setup(value => value.GetReplayAsync("current-user", cursor, 20, default)).ReturnsAsync(page);
+
+        (await _controller.Replay(cursor.Encode(), 20)).Result.Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(page);
+        _getterService.VerifyAll();
+    }
+
+    [Theory]
+    [InlineData("invalid", 100)]
+    [InlineData("", 100)]
+    [InlineData(null, 0)]
+    [InlineData(null, 101)]
+    public async Task Replay_WithInvalidCursorOrLimit_ReturnsBadRequest(string? cursor, int limit)
+    {
+        var result = await _controller.Replay(cursor, limit);
+        result.Result.Should().BeAssignableTo<ObjectResult>().Which.StatusCode.Should().Be(400);
+        _getterService.Verify(value => value.GetReplayAsync(It.IsAny<string>(), It.IsAny<NotificationReplayCursor?>(),
+            It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
 }

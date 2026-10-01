@@ -22,6 +22,7 @@ internal static class RedisServiceCollectionExtensions
             redisConfiguration.ConnectTimeout = redis.ConnectTimeout;
             redisConfiguration.SyncTimeout = redis.SyncTimeout;
             redisConfiguration.AbortOnConnectFail = redis.AbortOnConnectFail;
+            redisConfiguration.BacklogPolicy = BacklogPolicy.FailFast;
             redisConfiguration.ReconnectRetryPolicy = new ExponentialRetry(
                 redis.InitialReconnectDelayMilliseconds,
                 redis.MaxReconnectDelayMilliseconds);

@@ -16,7 +16,7 @@ import type { NotificationItem } from "@/types/notification";
 
 type NotificationRedisCommands = Pick<
   ReturnType<typeof createClient>,
-  "expire" | "zAdd" | "zRem"
+  "expire" | "zAdd" | "zRem" | "isReady"
 >;
 
 type LocalConnection = {
@@ -25,6 +25,8 @@ type LocalConnection = {
   presenceMember: string;
   replaying: boolean;
   buffered: NotificationItem[];
+  presenceReady: boolean;
+  realtimeReadyListeners: Set<() => void>;
   send: (notification: NotificationItem, traceContext?: TraceContextCarrier) => void;
 };
 
@@ -32,8 +34,12 @@ type NotificationHubState = {
   instanceId: string;
   connectionsByUser: Map<string, Map<string, LocalConnection>>;
   redis?: NotificationRedisCommands;
-  subscriber?: unknown;
+  subscriber?: { isReady: boolean };
+  subscribed: boolean;
+  healthy: boolean;
+  disconnectGeneration: number;
   startPromise?: Promise<void>;
+  restorePromise?: Promise<void>;
 };
 
 declare global {
@@ -59,6 +65,9 @@ function getState() {
   globalThis.adminWebNotificationHub ??= {
     instanceId: createInstanceId(),
     connectionsByUser: new Map(),
+    subscribed: false,
+    healthy: false,
+    disconnectGeneration: 0,
   };
 
   return globalThis.adminWebNotificationHub;
@@ -161,17 +170,71 @@ function dispatchRedisMessage(serializedMessage: string) {
   });
 }
 
+function markUnavailable(state: NotificationHubState) {
+  let hadDeliveryPath = state.healthy;
+  state.healthy = false;
+  for (const connections of state.connectionsByUser.values()) {
+    for (const connection of connections.values()) {
+      hadDeliveryPath ||= connection.presenceReady;
+      connection.presenceReady = false;
+    }
+  }
+  if (hadDeliveryPath) state.disconnectGeneration++;
+}
+
+function notifyRealtimeReady(state: NotificationHubState) {
+  for (const connections of state.connectionsByUser.values()) {
+    for (const connection of connections.values()) {
+      for (const listener of connection.realtimeReadyListeners) listener();
+    }
+  }
+}
+
+async function writePresence(redis: NotificationRedisCommands, userId: string, member: string) {
+  const ttl = getPresenceTtlSeconds();
+  const key = getPresenceKey(userId);
+  await redis.zAdd(key, { score: Date.now() + ttl * 1_000, value: member });
+  await redis.expire(key, ttl);
+}
+
+async function restorePresence(state: NotificationHubState) {
+  if (!state.subscribed || !state.redis?.isReady || !state.subscriber?.isReady) return;
+  state.restorePromise ??= (async () => {
+    try {
+      for (const [userId, connections] of state.connectionsByUser) {
+        for (const connection of connections.values()) {
+          await writePresence(state.redis!, userId, connection.presenceMember);
+          connection.presenceReady = true;
+        }
+      }
+      if (state.redis?.isReady && state.subscriber?.isReady) {
+        state.healthy = true;
+        notifyRealtimeReady(state);
+      } else {
+        markUnavailable(state);
+      }
+    } catch {
+      markUnavailable(state);
+    }
+  })().finally(() => { state.restorePromise = undefined; });
+  await state.restorePromise;
+}
+
 async function ensureInfrastructure() {
   const state = getState();
 
   state.startPromise ??= (async () => {
     const redis = createClient({ url: getRedisUrl() });
     const subscriber = redis.duplicate();
+    state.redis = redis;
+    state.subscriber = subscriber;
 
-    // node-redis reports background reconnect errors through this event. The
-    // active command still rejects, allowing the route to fail safely.
-    redis.on("error", () => undefined);
-    subscriber.on("error", () => undefined);
+    for (const client of [redis, subscriber]) {
+      client.on("error", () => markUnavailable(state));
+      client.on("reconnecting", () => markUnavailable(state));
+      client.on("end", () => markUnavailable(state));
+      client.on("ready", () => { void restorePresence(state); });
+    }
 
     try {
       await Promise.all([redis.connect(), subscriber.connect()]);
@@ -191,6 +254,7 @@ async function ensureInfrastructure() {
         async (span) => {
           try {
             await subscriber.subscribe(channel, dispatchRedisMessage);
+            state.subscribed = true;
             span.setStatus({ code: SpanStatusCode.OK });
           } catch (error) {
             span.setAttribute("error.type", error instanceof Error ? error.name : "UnknownError");
@@ -201,29 +265,29 @@ async function ensureInfrastructure() {
           }
         },
       );
-      state.redis = redis;
-      state.subscriber = subscriber;
+      await restorePresence(state);
     } catch (error) {
+      markUnavailable(state);
       if (redis.isOpen) redis.destroy();
       if (subscriber.isOpen) subscriber.destroy();
+      state.redis = undefined;
+      state.subscriber = undefined;
+      state.subscribed = false;
       state.startPromise = undefined;
       throw error;
     }
   })();
 
   await state.startPromise;
-
-  if (!state.redis) {
-    throw new Error("Notification Redis connection is unavailable.");
-  }
-
-  return state.redis;
 }
 
 export type NotificationConnection = {
   connectionId: string;
   activateLiveDelivery: () => NotificationItem[];
   refreshPresence: () => Promise<void>;
+  isRealtimeAvailable: () => boolean;
+  waitForRealtimeReady: (timeoutMs: number, signal: AbortSignal) => Promise<boolean>;
+  getDisconnectGeneration: () => number;
   close: () => Promise<void>;
 };
 
@@ -237,7 +301,7 @@ export async function registerNotificationConnection(
     : state.startPromise
       ? "await"
       : "initialize";
-  const redis = await getServerTracer().startActiveSpan(
+  void getServerTracer().startActiveSpan(
     "notifications.redis.subscription",
     {
       kind: SpanKind.INTERNAL,
@@ -249,13 +313,11 @@ export async function registerNotificationConnection(
     },
     async (span) => {
       try {
-        const client = await ensureInfrastructure();
+        await ensureInfrastructure();
         span.setStatus({ code: SpanStatusCode.OK });
-        return client;
       } catch (error) {
         span.setAttribute("error.type", error instanceof Error ? error.name : "UnknownError");
         span.setStatus({ code: SpanStatusCode.ERROR });
-        throw error;
       } finally {
         span.end();
       }
@@ -269,6 +331,8 @@ export async function registerNotificationConnection(
     presenceMember,
     replaying: true,
     buffered: [],
+    presenceReady: false,
+    realtimeReadyListeners: new Set(),
     send,
   };
   const userConnections = state.connectionsByUser.get(userId) ?? new Map();
@@ -277,19 +341,76 @@ export async function registerNotificationConnection(
 
   let closed = false;
 
+  function isRealtimeAvailable() {
+    return Boolean(!closed && state.healthy && state.subscribed
+      && state.redis?.isReady && state.subscriber?.isReady && connection.presenceReady);
+  }
+
+  function waitForRealtimeReady(timeoutMs: number, signal: AbortSignal): Promise<boolean> {
+    if (signal.aborted) {
+      return Promise.reject(signal.reason ?? new DOMException("The request was aborted.", "AbortError"));
+    }
+    if (closed) return Promise.resolve(false);
+    if (isRealtimeAvailable()) return Promise.resolve(true);
+
+    return new Promise<boolean>((resolve, reject) => {
+      let settled = false;
+      let timeout: ReturnType<typeof setTimeout>;
+
+      function cleanupWait() {
+        clearTimeout(timeout);
+        signal.removeEventListener("abort", handleWaitAbort);
+        connection.realtimeReadyListeners.delete(handleReady);
+      }
+
+      function finish(ready: boolean) {
+        if (settled) return;
+        settled = true;
+        cleanupWait();
+        resolve(ready);
+      }
+
+      function handleReady() {
+        if (closed) finish(false);
+        else if (isRealtimeAvailable()) finish(true);
+      }
+
+      function handleWaitAbort() {
+        if (settled) return;
+        settled = true;
+        cleanupWait();
+        reject(signal.reason ?? new DOMException("The request was aborted.", "AbortError"));
+      }
+
+      connection.realtimeReadyListeners.add(handleReady);
+      signal.addEventListener("abort", handleWaitAbort, { once: true });
+      timeout = setTimeout(() => finish(false), timeoutMs);
+      handleReady();
+    });
+  }
+
   async function refreshPresence() {
     if (closed) return;
-
-    const presenceTtlSeconds = getPresenceTtlSeconds();
-    const expiresAt = Date.now() + presenceTtlSeconds * 1_000;
-    const key = getPresenceKey(userId);
-    await redis.zAdd(key, { score: expiresAt, value: presenceMember });
-    await redis.expire(key, presenceTtlSeconds);
+    const redis = state.redis;
+    if (!redis?.isReady || !state.subscriber?.isReady || !state.subscribed) {
+      connection.presenceReady = false;
+      if (!state.startPromise) void ensureInfrastructure().catch(() => undefined);
+      return;
+    }
+    try {
+      await writePresence(redis, userId, presenceMember);
+      connection.presenceReady = true;
+      if (!state.healthy) await restorePresence(state);
+      for (const listener of connection.realtimeReadyListeners) listener();
+    } catch {
+      markUnavailable(state);
+    }
   }
 
   async function close() {
     if (closed) return;
     closed = true;
+    for (const listener of connection.realtimeReadyListeners) listener();
 
     const currentConnections = state.connectionsByUser.get(userId);
     currentConnections?.delete(connectionId);
@@ -298,23 +419,23 @@ export async function registerNotificationConnection(
     }
 
     try {
-      await redis.zRem(getPresenceKey(userId), presenceMember);
+      if (state.redis?.isReady) {
+        await state.redis.zRem(getPresenceKey(userId), presenceMember);
+      }
     } catch {
       // The 45-second score/TTL is the crash-safe cleanup path when Redis is
       // unavailable during disconnect.
     }
   }
 
-  try {
-    await refreshPresence();
-  } catch (error) {
-    await close();
-    throw error;
-  }
+  void refreshPresence();
 
   return {
     connectionId,
     refreshPresence,
+    isRealtimeAvailable,
+    waitForRealtimeReady,
+    getDisconnectGeneration: () => state.disconnectGeneration,
     activateLiveDelivery() {
       connection.replaying = false;
       const buffered = connection.buffered;

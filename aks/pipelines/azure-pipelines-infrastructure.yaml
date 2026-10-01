@@ -40,7 +40,8 @@ variables:
   - group: infrastructure-key-vault     # Linked to Key Vault microservicesdemo-kv
                                          # Secrets: postgres-password, rabbitmq-password,
                                          #   alertmanager-slack-webhook, postgres-exporter-password,
-                                         #   redis-connection-string
+                                         #   redis-connection-string, gateway-proof-key,
+                                         #   gateway-db-password
   - name: k8sServiceConnection
     value: dev-microservicesdemo-aks-cluster-dev-1778160743494
   - name: azureSubscription
@@ -144,6 +145,13 @@ stages:
                         --from-literal=postgres-password='$(postgres-password)' \
                         --dry-run=client -o yaml | kubectl apply -f -
 
+                      kubectl -n $(namespace) create secret generic gateway-auth-secrets \
+                        --from-literal=proof-key-id='v1' \
+                        --from-literal=proof-key="$GATEWAY_PROOF_KEY" \
+                        --from-literal=postgres-password="$GATEWAY_DB_PASSWORD" \
+                        --from-literal=postgres-connection-string='Host=postgres;Port=5432;Database=adminwebdatabase;Username=gateway_auth_reader;Pooling=true;Maximum Pool Size=20;Timeout=3;Command Timeout=3' \
+                        --dry-run=client -o yaml | kubectl apply -f -
+
                       kubectl -n $(namespace) create secret generic postgres-exporter-secret \
                         --from-literal=DATA_SOURCE_NAME='postgresql://exporter:$(postgres-exporter-password)@postgres:5432/productsdatabase?sslmode=disable' \
                         --dry-run=client -o yaml | kubectl apply -f -
@@ -157,6 +165,9 @@ stages:
                         --dry-run=client -o yaml | kubectl apply -f -
 
                       rm -f alertmanager.yml
+                  env:
+                    GATEWAY_PROOF_KEY: $(gateway-proof-key)
+                    GATEWAY_DB_PASSWORD: $(gateway-db-password)
 
                 - task: KubernetesManifest@1
                   displayName: Deploy data services
@@ -197,6 +208,9 @@ stages:
 
                       kubectl -n $(namespace) exec -i deploy/postgres -- \
                         psql -v ON_ERROR_STOP=1 -U postgres -d postgres < configs/postgres/init/create-admin-web-refresh-tokens-table-and-index.sql
+
+                      kubectl -n $(namespace) exec -i deploy/postgres -- \
+                        psql -v ON_ERROR_STOP=1 -U postgres -d postgres < configs/postgres/init/create-gateway-auth-reader.sql
 
                 - task: KubernetesManifest@1
                   displayName: Deploy observability services

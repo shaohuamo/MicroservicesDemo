@@ -34,10 +34,42 @@ spec:
           value: "false"
         - name: Authentication__DenylistRedisConnectionString
           value: "redis:6379"
+        - name: Authentication__DenylistRedis__AbortOnConnectFail
+          value: "false"
+        - name: Authentication__DenylistRedis__ConnectRetry
+          value: "1"
+        - name: Authentication__DenylistRedis__ConnectTimeout
+          value: "1500"
+        - name: Authentication__DenylistRedis__SyncTimeout
+          value: "1500"
+        - name: Authentication__DenylistRedis__AsyncTimeout
+          value: "1500"
         - name: Authentication__AccessTokenDenylistPrefix
           value: "admin-web:access-token-denylist"
         - name: Authentication__DenylistFailClosed
           value: "true"
+        - name: Authentication__SessionFallback__Enabled
+          value: "true"
+        - name: Authentication__SessionFallback__PostgresConnectionString
+          valueFrom:
+            secretKeyRef:
+              name: gateway-auth-secrets
+              key: postgres-connection-string
+        - name: Authentication__SessionFallback__PostgresPassword
+          valueFrom:
+            secretKeyRef:
+              name: gateway-auth-secrets
+              key: postgres-password
+        - name: Authentication__SessionFallback__ProofKeys__Current__Id
+          valueFrom:
+            secretKeyRef:
+              name: gateway-auth-secrets
+              key: proof-key-id
+        - name: Authentication__SessionFallback__ProofKeys__Current__Secret
+          valueFrom:
+            secretKeyRef:
+              name: gateway-auth-secrets
+              key: proof-key
         - name: Routes__0__RateLimitOptions__Limit
           value: "$(OCELOT_LIMIT)"
         - name: Routes__0__RateLimitOptions__Period

@@ -1,11 +1,11 @@
 using Microsoft.Extensions.Diagnostics.HealthChecks;
-using StackExchange.Redis;
+using ProductsMicroservice.Infrastructure.Redis;
 
 namespace ProductsMicroService.API.Health;
 
 /// <summary>Checks whether Products Redis responds to commands.</summary>
-/// <param name="connection">The shared Redis connection.</param>
-public sealed class ProductsRedisHealthCheck(IConnectionMultiplexer connection) : IHealthCheck
+/// <param name="connections">The shared Redis connection provider.</param>
+public sealed class ProductsRedisHealthCheck(IProductsRedisConnectionProvider connections) : IHealthCheck
 {
     /// <inheritdoc />
     public async Task<HealthCheckResult> CheckHealthAsync(
@@ -14,6 +14,7 @@ public sealed class ProductsRedisHealthCheck(IConnectionMultiplexer connection) 
     {
         try
         {
+            var connection = await connections.GetConnectionAsync().WaitAsync(cancellationToken);
             await connection.GetDatabase().PingAsync().WaitAsync(cancellationToken);
             return HealthCheckResult.Healthy("Products Redis is reachable.");
         }

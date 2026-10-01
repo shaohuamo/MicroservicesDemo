@@ -115,6 +115,7 @@ public sealed class NotificationDeliveryWorker(
             return;
         }
 
+        var redisFailed = false;
         if (notification.AttemptCount <= _options.MaxSseAttempts)
         {
             try
@@ -161,9 +162,23 @@ public sealed class NotificationDeliveryWorker(
                     exception,
                     "Redis delivery failed for notification {NotificationId}.",
                     notification.NotificationId);
-                await HandleFailureAsync(notification, notification.Version, "REDIS_DELIVERY_FAILED", cancellationToken);
-                return;
+                redisFailed = true;
             }
+        }
+
+        // An active BFF can still deliver from PostgreSQL while Redis is down.
+        // The version check on the later email transition lets a browser ACK win.
+        var graceDeadline = notification.CreatedAtUtc.AddSeconds(_options.InAppGraceSeconds);
+        if (DateTimeOffset.UtcNow < graceDeadline)
+        {
+            await repository.ScheduleRetryAsync(
+                notification.NotificationId,
+                notification.Version,
+                _workerId,
+                graceDeadline,
+                redisFailed ? "REDIS_DELIVERY_FAILED" : "AWAITING_IN_APP_DELIVERY",
+                cancellationToken);
+            return;
         }
 
         var sendingVersion = await repository.BeginSendingEmailAsync(
@@ -260,6 +275,7 @@ public sealed class NotificationDeliveryWorker(
             || _options.BatchSize <= 0
             || _options.LeaseSeconds <= 0
             || _options.SseAckDeadlineSeconds <= 0
+            || _options.InAppGraceSeconds <= 0
             || _options.MaxSseAttempts <= 0
             || _options.MaxAttempts < _options.MaxSseAttempts
             || _options.InitialRetryDelaySeconds <= 0

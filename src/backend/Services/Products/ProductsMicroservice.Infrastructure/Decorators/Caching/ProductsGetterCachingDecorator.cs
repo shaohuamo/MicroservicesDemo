@@ -9,6 +9,7 @@ using ProductsMicroservice.Core.DTO;
 using ProductsMicroservice.Core.ServiceContracts;
 using ProductsMicroservice.Core.Services;
 using ProductsMicroservice.Infrastructure.Options;
+using ProductsMicroservice.Infrastructure.Redis;
 using System.Diagnostics;
 using System.Text.Json;
 
@@ -18,7 +19,8 @@ namespace ProductsMicroservice.Infrastructure.Decorators.Caching
     {
         private readonly IProductsGetterService _innerService;
         private readonly IDistributedCache _distributedCache;
-        private readonly IDistributedLockProvider _lockProvider;
+        private readonly IProductsRedisConnectionProvider _connections;
+        private readonly IProductsRedisLockFactory _lockFactory;
         private readonly CacheOptions _cacheOptions;
         private readonly ILogger<ProductsGetterCachingDecorator> _logger;
         private static readonly SemaphoreSlim _localLock = new(1, 1);
@@ -27,12 +29,14 @@ namespace ProductsMicroservice.Infrastructure.Decorators.Caching
 
         public ProductsGetterCachingDecorator(
             IProductsGetterService inner, IDistributedCache cache,
-            IDistributedLockProvider lockProvider, IOptions<CacheOptions> options,
+            IProductsRedisConnectionProvider connections, IProductsRedisLockFactory lockFactory,
+            IOptions<CacheOptions> options,
             ILogger<ProductsGetterCachingDecorator> logger, IServiceScopeFactory scopeFactory)
         {
             _innerService = inner;
             _distributedCache = cache;
-            _lockProvider = lockProvider;
+            _connections = connections;
+            _lockFactory = lockFactory;
             _cacheOptions = options.Value;
             _logger = logger;
             _scopeFactory = scopeFactory;
@@ -45,7 +49,11 @@ namespace ProductsMicroservice.Infrastructure.Decorators.Caching
             string cacheKey = ProductCacheKeys.GetDetailsKey(productId);
 
             //010-000:get product by productId from cache
-            string? cachedData = await _distributedCache.GetStringAsync(cacheKey);
+            var (cacheAvailable, cachedData) = await TryReadCacheAsync(cacheKey, "detail_read");
+            if (!cacheAvailable)
+            {
+                return await _innerService.GetProductByProductIdAsync(productId);
+            }
 
             // 020-000:cache hit
             if (cachedData != null)
@@ -62,10 +70,20 @@ namespace ProductsMicroservice.Infrastructure.Decorators.Caching
                     return null;
                 }
 
-                activity?.SetTag("cache.hit_type", "data");
-                _logger.LogInformation("Cache Hit for ProductId: {ProductId}", productId);
-
-                return JsonSerializer.Deserialize<ProductResponse>(cachedData, _jsonOptions);
+                try
+                {
+                    var cachedProduct = JsonSerializer.Deserialize<ProductResponse>(cachedData, _jsonOptions);
+                    if (cachedProduct is not null)
+                    {
+                        activity?.SetTag("cache.hit_type", "data");
+                        _logger.LogInformation("Cache Hit for ProductId: {ProductId}", productId);
+                        return cachedProduct;
+                    }
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogWarning(ex, "Invalid detail cache value for {CacheKey}", cacheKey);
+                }
             }
 
             // 030-000:cache miss
@@ -88,7 +106,7 @@ namespace ProductsMicroservice.Infrastructure.Decorators.Caching
                     AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(_cacheOptions.NegativeCacheExpirationMinutes)
                 };
 
-                await _distributedCache.SetStringAsync(cacheKey, _cacheOptions.NullValuePlaceholder, negativeOptions);
+                await TryWriteCacheAsync(cacheKey, _cacheOptions.NullValuePlaceholder, negativeOptions);
                 return null;
             }
             // 030-020:Store normal data in cache with longer expiration
@@ -101,9 +119,9 @@ namespace ProductsMicroservice.Infrastructure.Decorators.Caching
             activity?.SetTag("cache.fill_type", "data_fill");
             activity?.AddEvent(new("Updating Redis with fresh data."));
 
-            await _distributedCache.SetStringAsync(cacheKey, JsonSerializer.Serialize(result), cacheOptions);
+            await TryWriteCacheAsync(cacheKey, JsonSerializer.Serialize(result), cacheOptions);
 
-            _logger.LogInformation("Product retrieved and cached successfully.");
+            _logger.LogInformation("Product retrieved from database; cache fill attempted.");
             return result;
         }
         #endregion
@@ -119,7 +137,12 @@ namespace ProductsMicroservice.Infrastructure.Decorators.Caching
             var activity = Activity.Current;
 
             // 010-000:get data from cache
-            string? productsFromCache = await _distributedCache.GetStringAsync(ProductCacheKeys.AllProductsKey);
+            var (cacheAvailable, productsFromCache) = await TryReadCacheAsync(
+                ProductCacheKeys.AllProductsKey, "list_read");
+            if (!cacheAvailable)
+            {
+                return await _innerService.GetProductsAsync();
+            }
 
             // 020-000:cache miss
             if (productsFromCache == null)
@@ -140,7 +163,7 @@ namespace ProductsMicroservice.Infrastructure.Decorators.Caching
         private async Task<IEnumerable<ProductResponse?>> HandleCacheHit(Activity? activity, string cachedProducts)
         {
             // 030-010:deserialize cached data and logical expire time
-            var productsFromCache = JsonSerializer.Deserialize<RedisDataWrapper<List<ProductResponse>>>(cachedProducts, _jsonOptions);
+            var productsFromCache = ParseListCache(cachedProducts);
 
             if (productsFromCache?.Data == null)
             {
@@ -195,59 +218,70 @@ namespace ProductsMicroservice.Infrastructure.Decorators.Caching
             {
                 // 020-020 : Double-check(maybe another thread in same process has already fetched the data and populated the cache
                 // while we were waiting for the local lock)
-                string? productsFromCache = await _distributedCache.GetStringAsync(ProductCacheKeys.AllProductsKey);
-                if (productsFromCache != null)
+                var (cacheAvailable, productsFromCache) = await TryReadCacheAsync(
+                    ProductCacheKeys.AllProductsKey, "list_local_recheck");
+                if (!cacheAvailable)
+                {
+                    return await _innerService.GetProductsAsync();
+                }
+
+                var cached = productsFromCache is null ? null : ParseListCache(productsFromCache);
+                if (cached?.Data is not null)
                 {
                     activity?.SetTag("cache.hit_source", "local_lock_wait");
                     activity?.AddEvent(new("Cache populated by another thread while waiting for local lock."));
                     _logger.LogInformation("Cache populated by another thread while waiting for local lock.");
-                    return JsonSerializer.Deserialize<RedisDataWrapper<List<ProductResponse>>>(productsFromCache)!.Data;
+                    return cached.Data;
                 }
 
                 // 020-030 : acquire distributed lock
                 // to ensure only one instance in the distributed system fetches from DB and populates cache
                 var lockKey = $"lock:{ProductCacheKeys.AllProductsKey}";
-                var myLock = _lockProvider.CreateLock(lockKey);
-
+                IDistributedSynchronizationHandle handle;
                 try
                 {
                     activity?.AddEvent(new("Attempting to acquire distributed lock"));
-
-                    // AcquireAsync will throw TimeoutException after timeout
-                    await using (var handle = await myLock.AcquireAsync(TimeSpan.FromSeconds(5)))
-                    {
-                        activity?.SetTag("lock.distributed.acquired", true);
-
-                        // double-check (after acquired distributed lock):
-                        // to avoid in case another instance has already fetched data and populated cache
-                        // while we were waiting for the distributed lock
-                        productsFromCache = await _distributedCache.GetStringAsync(ProductCacheKeys.AllProductsKey);
-                        if (productsFromCache != null)
-                        {
-                            activity?.SetTag("cache.hit_source", "distributed_lock_wait");
-                            activity?.AddEvent(new("Cache populated by another instance while waiting for distributed lock."));
-                            _logger.LogInformation("Cache populated by another instance while waiting for distributed lock.");
-                            return JsonSerializer.Deserialize<RedisDataWrapper<List<ProductResponse>>>(productsFromCache)!.Data;
-                        }
-
-                        activity?.SetTag("cache.fill_action", "database_fetch");
-                        _logger.LogInformation("Fetching from Database and updating Redis...");
-
-                        //call innerService to fetch data from database
-                        var data = await _innerService.GetProductsAsync();
-                        var dataList = data.ToList();
-
-                        // 020-040 : populate cache
-                        await SaveToCache(ProductCacheKeys.AllProductsKey, dataList);
-
-                        return dataList;
-                    }
+                    var myLock = await _lockFactory.CreateLockAsync(lockKey);
+                    handle = await myLock.AcquireAsync(TimeSpan.FromSeconds(5));
                 }
-                catch (TimeoutException ex)
+                catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Distributed lock timeout for {CacheKey} during cold start.", ProductCacheKeys.AllProductsKey);
-                    activity?.SetTag("lock.distributed.timeout", true);
-                    throw new Exception("System busy during cold start. Please try again in a moment.", ex);
+                    RecordRedisFailure(ex, "list_lock_acquire");
+                    return await _innerService.GetProductsAsync();
+                }
+
+                try
+                {
+                    activity?.SetTag("lock.distributed.acquired", true);
+                    var (recheckAvailable, recheckedProducts) = await TryReadCacheAsync(
+                        ProductCacheKeys.AllProductsKey, "list_distributed_recheck");
+                    if (!recheckAvailable)
+                    {
+                        return await _innerService.GetProductsAsync();
+                    }
+
+                    cached = recheckedProducts is null ? null : ParseListCache(recheckedProducts);
+                    if (cached?.Data is not null)
+                    {
+                        activity?.SetTag("cache.hit_source", "distributed_lock_wait");
+                        return cached.Data;
+                    }
+
+                    activity?.SetTag("cache.fill_action", "database_fetch");
+                    var dataList = (await _innerService.GetProductsAsync()).ToList();
+                    await SaveToCache(ProductCacheKeys.AllProductsKey, dataList);
+                    return dataList;
+                }
+                finally
+                {
+                    try
+                    {
+                        await handle.DisposeAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        RecordRedisFailure(ex, "list_lock_release");
+                    }
                 }
             }
             finally
@@ -263,12 +297,10 @@ namespace ProductsMicroservice.Infrastructure.Decorators.Caching
                 ActivityKind.Internal,
                 parentContext);
 
-            //to avoid accessing scoped services(ProductsGetterService) that may have been disposed when BackgroundRefresh runs,
-            //create a new scope and resolve a new instance of the inner service for background refresh
-            using var scope = _scopeFactory.CreateScope();
-
             try
             {
+                // The request scope may be gone when this task runs.
+                using var scope = _scopeFactory.CreateScope();
                 bgActivity?.SetTag("cache.key", ProductCacheKeys.AllProductsKey);
                 bgActivity?.SetTag("refresh.reason", "logical_expiration");
                 _logger.LogInformation("Background refresh started for {CacheKey}", ProductCacheKeys.AllProductsKey);
@@ -279,7 +311,7 @@ namespace ProductsMicroservice.Infrastructure.Decorators.Caching
                 var lockKey = $"lock:{ProductCacheKeys.AllProductsKey}";
                 bgActivity?.AddEvent(new("Attempting to acquire RedLock"));
 
-                var myLock = _lockProvider.CreateLock(lockKey);
+                var myLock = await _lockFactory.CreateLockAsync(lockKey);
                 // TimeSpan.Zero:try acquire lock immediately, if not acquired, return null immediately without waiting
                 await using (var handle = await myLock.TryAcquireAsync(TimeSpan.Zero))
                 {
@@ -359,6 +391,78 @@ namespace ProductsMicroservice.Infrastructure.Decorators.Caching
             {
                 _logger.LogWarning(ex, "Failed to save data to cache for key: {CacheKey}. Continuing without cache update.", key);
                 Activity.Current?.AddException(ex);
+            }
+        }
+
+        private async Task<(bool Available, string? Value)> TryReadCacheAsync(string key, string stage)
+        {
+            try
+            {
+                var connection = await _connections.GetConnectionAsync();
+                if (!connection.IsConnected)
+                {
+                    RecordRedisFailure(new InvalidOperationException("Products Redis is disconnected."), stage);
+                    return (false, null);
+                }
+
+                return (true, await _distributedCache.GetStringAsync(key));
+            }
+            catch (Exception ex)
+            {
+                RecordRedisFailure(ex, stage);
+                return (false, null);
+            }
+        }
+
+        private async Task TryWriteCacheAsync(
+            string key, string value, DistributedCacheEntryOptions options)
+        {
+            try
+            {
+                var connection = await _connections.GetConnectionAsync();
+                if (!connection.IsConnected)
+                {
+                    RecordRedisFailure(new InvalidOperationException("Products Redis is disconnected."),
+                        "detail_write", fallback: false);
+                    return;
+                }
+
+                await _distributedCache.SetStringAsync(key, value, options);
+            }
+            catch (Exception ex)
+            {
+                RecordRedisFailure(ex, "detail_write", fallback: false);
+            }
+        }
+
+        private RedisDataWrapper<List<ProductResponse>>? ParseListCache(string value)
+        {
+            try
+            {
+                return JsonSerializer.Deserialize<RedisDataWrapper<List<ProductResponse>>>(value, _jsonOptions);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Invalid all-products cache value");
+                return null;
+            }
+        }
+
+        private void RecordRedisFailure(Exception exception, string stage, bool fallback = true)
+        {
+            bool lockTimeout = exception is TimeoutException && stage == "list_lock_acquire";
+            _logger.LogWarning(exception, "Products cache operation failed at {Stage}", stage);
+            var activity = Activity.Current;
+            activity?.AddException(exception);
+            activity?.SetTag("cache.failure_stage", stage);
+            if (fallback)
+            {
+                activity?.SetTag("cache.status", lockTimeout ? "lock_timeout" : "redis_unavailable");
+                activity?.SetTag("cache.fallback", "database");
+                DiagnosticsConfig.CacheReadFallbackCounter.Add(1,
+                    new KeyValuePair<string, object?>("stage", stage),
+                    new KeyValuePair<string, object?>("read", stage.StartsWith("detail", StringComparison.Ordinal)
+                        ? "detail" : "list"));
             }
         }
 

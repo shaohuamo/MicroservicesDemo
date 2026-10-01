@@ -20,6 +20,8 @@ public class ApplicationDbContext : Microsoft.EntityFrameworkCore.DbContext, IUn
     internal DbSet<ProductOperationOutbox> ProductOperationOutbox =>
         Set<ProductOperationOutbox>();
 
+    public void DiscardPendingChanges() => ChangeTracker.Clear();
+
     public override async Task<int> SaveChangesAsync(
         CancellationToken cancellationToken = default)
     {

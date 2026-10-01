@@ -41,6 +41,16 @@ spec:
           value: "$(IDENTITYSERVER_FRONTEND_CLIENT_SECRET)"
         - name: AUTH_SECRET
           value: "$(AUTH_SECRET)"
+        - name: AUTH_GATEWAY_PROOF_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: gateway-auth-secrets
+              key: proof-key-id
+        - name: AUTH_GATEWAY_PROOF_KEY
+          valueFrom:
+            secretKeyRef:
+              name: gateway-auth-secrets
+              key: proof-key
         - name: AUTH_POSTGRES_HOST
           value: "postgres-service"
         - name: AUTH_POSTGRES_PORT

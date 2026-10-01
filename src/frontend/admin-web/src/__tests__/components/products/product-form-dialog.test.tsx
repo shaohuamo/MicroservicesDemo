@@ -41,7 +41,8 @@ const existingProduct: ProductResponse = {
 
 describe("ProductFormDialog", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    mutationMocks.update.mockResolvedValue(existingProduct);
     mutationMocks.add.mockResolvedValue({
       productId: "new",
       displayName: "X",
@@ -183,6 +184,44 @@ describe("ProductFormDialog", () => {
     fireEvent.submit(form);
     await waitFor(() => expect(mutationMocks.add).toHaveBeenCalledTimes(3));
     expect(mutationMocks.add.mock.calls[2][0].idempotencyKey).toBe(keys[1]);
+  });
+  it("keeps the update key after 5xx, then creates a new key when the version changes", async () => {
+    mutationMocks.update.mockRejectedValue({ isAxiosError: true, response: { status: 503 } });
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <Wrapper><ProductFormDialog open onOpenChange={onOpenChange} product={existingProduct} /></Wrapper>,
+    );
+    const form = screen.getByRole("button", { name: "Update" }).closest("form")!;
+    fireEvent.submit(form);
+    await waitFor(() => expect(mutationMocks.update).toHaveBeenCalledTimes(1));
+    fireEvent.submit(form);
+    await waitFor(() => expect(mutationMocks.update).toHaveBeenCalledTimes(2));
+    const key = mutationMocks.update.mock.calls[0][0].idempotencyKey;
+    expect(mutationMocks.update.mock.calls[1][0].idempotencyKey).toBe(key);
+    rerender(
+      <Wrapper><ProductFormDialog open onOpenChange={onOpenChange} product={{ ...existingProduct, version: 2 }} /></Wrapper>,
+    );
+    fireEvent.submit(form);
+    await waitFor(() => expect(mutationMocks.update).toHaveBeenCalledTimes(3));
+    expect(mutationMocks.update.mock.calls[2][0]).toMatchObject({ request: { version: 2 } });
+    expect(mutationMocks.update.mock.calls[2][0].idempotencyKey).not.toBe(key);
+  });
+
+  it("guards rapid update submissions and clears the key after closing", async () => {
+    let resolve!: (value: ProductResponse) => void;
+    mutationMocks.update.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    const onOpenChange = vi.fn();
+    render(<Wrapper><ProductFormDialog open onOpenChange={onOpenChange} product={existingProduct} /></Wrapper>);
+    const form = screen.getByRole("button", { name: "Update" }).closest("form")!;
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    expect(mutationMocks.update).toHaveBeenCalledTimes(1);
+    resolve(existingProduct);
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    fireEvent.submit(form);
+    await waitFor(() => expect(mutationMocks.update).toHaveBeenCalledTimes(2));
+    expect(mutationMocks.update.mock.calls[1][0].idempotencyKey)
+      .not.toBe(mutationMocks.update.mock.calls[0][0].idempotencyKey);
   });
 });
 

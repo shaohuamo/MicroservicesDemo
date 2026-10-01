@@ -64,8 +64,9 @@ describe("useDeleteProduct", () => {
 
     const { result } = renderHook(() => useDeleteProduct(), { wrapper: createWrapper() });
 
-    await result.current.mutateAsync({ productId: "del-id", version: 3 });
+    const operation = { request: { productId: "del-id", version: 3 }, idempotencyKey: "7f277273-b334-47f9-8b59-d37aa3473665" };
+    await result.current.mutateAsync(operation);
 
-    expect(productsApi.deleteProduct).toHaveBeenCalledWith({ productId: "del-id", version: 3 });
+    expect(productsApi.deleteProduct).toHaveBeenCalledWith(operation);
   });
 });

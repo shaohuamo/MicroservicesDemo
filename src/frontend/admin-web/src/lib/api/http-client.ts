@@ -189,6 +189,11 @@ api.interceptors.response.use(
 
     recordRequestMetric(config, "failure", getErrorStatus(error));
 
+    if (error.response?.status === 401 && typeof window !== "undefined") {
+      window.location.replace("/logout");
+      return Promise.reject(error);
+    }
+
     config.__retryCount ??= 0;
 
     if (config.__retryCount < MAX_RETRIES && isRetryableError(error)) {

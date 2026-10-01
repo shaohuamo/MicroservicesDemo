@@ -64,6 +64,11 @@ spec:
                 secretKeyRef:
                   name: postgres-infra-secret
                   key: postgres-password
+            - name: GATEWAY_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gateway-auth-secrets
+                  key: postgres-password
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
           ports:
@@ -220,6 +225,18 @@ spec:
       targetPort: 6379
   type: ClusterIP
 ---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data
+  namespace: dev
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 256Mi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -229,6 +246,8 @@ metadata:
     app: redis
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: redis
@@ -247,6 +266,10 @@ spec:
             - 2gb
             - --maxmemory-policy
             - allkeys-lru
+            - --appendonly
+            - "yes"
+            - --appendfsync
+            - everysec
           ports:
             - containerPort: 6379
               name: redis
@@ -283,6 +306,13 @@ spec:
             limits:
               cpu: 200m
               memory: 256Mi
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+      volumes:
+        - name: redis-data
+          persistentVolumeClaim:
+            claimName: redis-data
 ---
 apiVersion: v1
 kind: Service

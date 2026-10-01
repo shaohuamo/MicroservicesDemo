@@ -36,6 +36,28 @@
         "The rewritten README includes image embedding for observability assets using repository image paths.",
         "The run produces a sources.json file listing the exemplar repositories or README files consulted."
       ]
+    },
+    {
+      "id": 4,
+      "prompt": "Make a small factual correction to the authentication flow in this repository's root README.md using the gateway source as evidence. Update the corresponding passage in README.en.md. Preserve unrelated sections and navigation; do not redesign the README.",
+      "expected_output": "Both root READMEs receive the same factual correction in their respective languages without an unrelated showcase rewrite.",
+      "files": [],
+      "expectations": [
+        "The matching authentication-flow passages in README.md and README.en.md state equivalent facts.",
+        "Unrelated sections, commands, links, images, and navigation remain intact.",
+        "The focused edit does not require exemplar repository research or a full README redesign."
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Improve readability of long paragraphs in this repository's root README.md while preserving technical details. Keep README.en.md aligned. Use natural paragraphs, lists for parallel points, and steps for sequences; avoid ornamental bold labels.",
+      "expected_output": "Dense passages become easier to scan in both languages while keeping their meaning and technical details.",
+      "files": [],
+      "expectations": [
+        "Both root READMEs organize dense passages by idea and use lists or steps only where they help.",
+        "Facts, commands, links, images, and relevant navigation anchors remain aligned between languages.",
+        "The result does not mechanically turn every sentence into a bold-labeled list item."
+      ]
     }
   ]
 }

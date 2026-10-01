@@ -13,8 +13,7 @@ public interface INotificationGetRepository
 
     Task<NotificationReplayPage> GetReplayAsync(
         string userId,
-        long afterSequence,
-        long? upToSequence,
+        NotificationReplayCursor? cursor,
         int limit,
         CancellationToken cancellationToken);
 }

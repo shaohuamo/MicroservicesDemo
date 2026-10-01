@@ -14,6 +14,7 @@ import {
   SeverityNumber,
 } from "@/lib/notifications/server-otel";
 import { resolveBffProxyRoute } from "@/lib/api/bff-route-template";
+import { applyGatewaySessionProof, GATEWAY_PROOF_HEADERS, getRefreshTokenRecordId } from "@/lib/auth/gateway-session-proof";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -119,6 +120,8 @@ function buildProxyHeaders(request: NextRequest, accessToken?: string) {
   headers.delete("connection");
   headers.delete("cookie");
   headers.delete("client-id");
+  headers.delete("authorization");
+  for (const name of GATEWAY_PROOF_HEADERS) headers.delete(name);
 
   if (accessToken) {
     headers.set("authorization", `Bearer ${accessToken}`);
@@ -180,18 +183,26 @@ async function proxyRequestWithSession(request: NextAuthRequest, { params }: Rou
     );
   }
 
+  if (!session?.accessToken) {
+    return NextResponse.json({ message: "Authentication is required." }, { status: 401 });
+  }
+  const recordId = await getRefreshTokenRecordId(request);
+  if (!recordId) {
+    return NextResponse.json({ message: "Authentication session is unavailable." }, { status: 401 });
+  }
+
   const requestBody = METHODS_WITHOUT_BODY.has(request.method)
     ? undefined
     : await request.arrayBuffer();
-  const proxyHeaders = buildProxyHeaders(request, session?.accessToken);
+  const proxyHeaders = buildProxyHeaders(request, session.accessToken);
+  applyGatewaySessionProof(proxyHeaders, recordId, session.accessToken);
   const clientId = proxyHeaders.get("client-id") ?? undefined;
 
   logDevelopmentHttp("backend api request", {
     method: request.method,
     url: upstreamUrl.toString(),
-    accessToken: session?.accessToken,
     clientId,
-    headers: getRequestHeadersForLog(proxyHeaders),
+    headers: getRequestHeadersForLog(proxyHeaders, GATEWAY_PROOF_HEADERS),
     body: requestBody ? new TextDecoder().decode(requestBody) : undefined,
   });
 

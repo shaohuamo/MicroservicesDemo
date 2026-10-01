@@ -59,7 +59,7 @@ builder.Services.AddHealthChecks()
     .AddCheck<ProductsDatabaseHealthCheck>(
         "products_database", tags: ["ready"], timeout: TimeSpan.FromSeconds(3))
     .AddCheck<ProductsRedisHealthCheck>(
-        "products_redis", tags: ["ready"], timeout: TimeSpan.FromSeconds(3));
+        "products_redis", timeout: TimeSpan.FromSeconds(3));
 
 var app = builder.Build();
 

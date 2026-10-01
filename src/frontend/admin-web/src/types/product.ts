@@ -12,8 +12,8 @@ export interface ProductAddRequest {
   quantityInStock: number;
 }
 
-export interface ProductAddOperation {
-  request: ProductAddRequest;
+export interface ProductWriteOperation<TRequest> {
+  request: TRequest;
   idempotencyKey: string;
 }
 
@@ -29,3 +29,7 @@ export interface ProductUpdateRequest {
   quantityInStock: number;
   version: number;
 }
+
+export type ProductAddOperation = ProductWriteOperation<ProductAddRequest>;
+export type ProductUpdateOperation = ProductWriteOperation<ProductUpdateRequest>;
+export type ProductDeleteOperation = ProductWriteOperation<ProductDeleteRequest>;

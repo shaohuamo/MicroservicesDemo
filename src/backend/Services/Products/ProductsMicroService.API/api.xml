@@ -38,19 +38,21 @@
             <param name="idempotencyKey">A canonical UUID v4 supplied by the client.</param>
             <returns></returns>
         </member>
-        <member name="M:ProductsMicroService.API.Controllers.ProductsController.UpdateProductAsync(ProductsMicroservice.Core.DTO.ProductUpdateRequest)">
+        <member name="M:ProductsMicroService.API.Controllers.ProductsController.UpdateProductAsync(ProductsMicroservice.Core.DTO.ProductUpdateRequest,System.String)">
             <summary>
             update a product
             </summary>
             <param name="productUpdateRequest"></param>
+            <param name="idempotencyKey">A canonical UUID v4 supplied by the client.</param>
             <returns></returns>
         </member>
-        <member name="M:ProductsMicroService.API.Controllers.ProductsController.DeleteProductAsync(System.Nullable{System.Guid},ProductsMicroservice.Core.DTO.ProductDeleteRequest)">
+        <member name="M:ProductsMicroService.API.Controllers.ProductsController.DeleteProductAsync(System.Nullable{System.Guid},ProductsMicroservice.Core.DTO.ProductDeleteRequest,System.String)">
             <summary>
             delete a product by productId
             </summary>
             <param name="productId"></param>
             <param name="request">Contains the version originally read by the client.</param>
+            <param name="idempotencyKey">A canonical UUID v4 supplied by the client.</param>
             <returns></returns>
         </member>
         <member name="T:ProductsMicroService.API.Extensions.DatabaseMigrationExtensions">
@@ -90,11 +92,11 @@
         </member>
         <member name="T:ProductsMicroService.API.Health.ProductsRedisHealthCheck">
             <summary>Checks whether Products Redis responds to commands.</summary>
-            <param name="connection">The shared Redis connection.</param>
+            <param name="connections">The shared Redis connection provider.</param>
         </member>
-        <member name="M:ProductsMicroService.API.Health.ProductsRedisHealthCheck.#ctor(StackExchange.Redis.IConnectionMultiplexer)">
+        <member name="M:ProductsMicroService.API.Health.ProductsRedisHealthCheck.#ctor(ProductsMicroservice.Infrastructure.Redis.IProductsRedisConnectionProvider)">
             <summary>Checks whether Products Redis responds to commands.</summary>
-            <param name="connection">The shared Redis connection.</param>
+            <param name="connections">The shared Redis connection provider.</param>
         </member>
         <member name="M:ProductsMicroService.API.Health.ProductsRedisHealthCheck.CheckHealthAsync(Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckContext,System.Threading.CancellationToken)">
             <inheritdoc />

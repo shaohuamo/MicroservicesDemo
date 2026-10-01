@@ -6,6 +6,7 @@ using ProductsMicroservice.Core.ServiceContracts;
 using ProductsMicroservice.Core.Services;
 using ProductsMicroservice.Infrastructure.Extensions;
 using ProductsMicroservice.Infrastructure.Decorators.Caching;
+using ProductsMicroservice.Infrastructure.Decorators.Idempotency;
 using ProductsMicroservice.Infrastructure.Decorators.Observability;
 using ProductsMicroservice.Infrastructure.HostedServices;
 using ProductsMicroservice.Infrastructure.Messaging;
@@ -20,13 +21,19 @@ namespace ProductsMicroservice.Infrastructure
         public static IServiceCollection ProductsMicroserviceInfrastructure(this IServiceCollection services,
             IConfiguration configuration)
         {
+            services.AddScoped<ProductIdempotencyExecutor>();
+            services.AddSingleton<ProductIdempotencyResultCache>();
+
             //decorate service
+            services.Decorate<IProductsAdderService, ProductsAdderIdempotencyDecorator>();
             services.Decorate<IProductsAdderService, ProductsAdderCachingDecorator>();
             services.Decorate<IProductsAdderService, ProductsAdderTelemetryDecorator>();
 
+            services.Decorate<IProductsDeleterService, ProductsDeleterIdempotencyDecorator>();
             services.Decorate<IProductsDeleterService, ProductsDeleterCachingDecorator>();
             services.Decorate<IProductsDeleterService, ProductsDeleterTelemetryDecorator>();
 
+            services.Decorate<IProductsUpdaterService, ProductsUpdaterIdempotencyDecorator>();
             services.Decorate<IProductsUpdaterService, ProductsUpdaterCachingDecorator>();
             services.Decorate<IProductsUpdaterService, ProductsUpdaterTelemetryDecorator>();
 

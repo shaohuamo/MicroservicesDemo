@@ -1,5 +1,6 @@
 type RedisModule = typeof import("redis");
 type RedisClient = {
+  isReady: boolean;
   connect: () => Promise<unknown>;
   on: (event: "error", listener: (error: unknown) => void) => unknown;
   set: (key: string, value: string, options: { EX: number }) => Promise<unknown>;
@@ -25,21 +26,24 @@ function getDenylistKey(jti: string) {
 }
 
 async function getRedisClient() {
-  if (!globalThis.adminWebAccessTokenDenylistRedis) {
-    const { createClient } = await import("redis") as RedisModule;
-    const client = createClient({
-      url: getRedisUrl(),
-    });
+  const existing = globalThis.adminWebAccessTokenDenylistRedis;
+  if (existing?.isReady) return existing;
+  globalThis.adminWebAccessTokenDenylistRedis = undefined;
 
-    client.on("error", () => {
-      // Redis command failures are surfaced through rejected promises below.
-    });
+  const { createClient } = await import("redis") as RedisModule;
+  const client = createClient({
+    url: getRedisUrl(),
+    disableOfflineQueue: true,
+    socket: { connectTimeout: 1_000, reconnectStrategy: false },
+  });
 
-    await client.connect();
-    globalThis.adminWebAccessTokenDenylistRedis = client;
-  }
+  client.on("error", () => {
+    // Redis command failures are surfaced through rejected promises below.
+  });
 
-  return globalThis.adminWebAccessTokenDenylistRedis;
+  await client.connect();
+  globalThis.adminWebAccessTokenDenylistRedis = client;
+  return client;
 }
 
 function base64UrlDecode(value: string) {
@@ -64,17 +68,29 @@ function decodeJwtPayload(accessToken: string): JwtPayload | null {
 }
 
 export async function denylistAccessToken(accessToken: string) {
-  const payload = decodeJwtPayload(accessToken);
-  const now = Math.floor(Date.now() / 1000);
-
-  if (!payload?.jti || !payload.exp || payload.exp <= now) {
-    return;
-  }
-
-  const ttlSeconds = payload.exp - now;
+  const ttlSeconds = getAccessTokenDenylistTtlSeconds(accessToken);
+  if (ttlSeconds <= 0) return;
+  const payload = decodeJwtPayload(accessToken)!;
   const redis = await getRedisClient();
 
-  await redis.set(getDenylistKey(payload.jti), "1", {
-    EX: ttlSeconds,
-  });
+  try {
+    await redis.set(getDenylistKey(payload.jti!), "1", {
+      EX: ttlSeconds,
+    });
+  } catch (error) {
+    if (globalThis.adminWebAccessTokenDenylistRedis === redis) {
+      globalThis.adminWebAccessTokenDenylistRedis = undefined;
+    }
+    throw error;
+  }
+}
+
+export function getAccessTokenDenylistTtlSeconds(accessToken: string, now = Math.floor(Date.now() / 1000)) {
+  const payload = decodeJwtPayload(accessToken);
+
+  if (!payload?.jti || !payload.exp || payload.exp + 30 <= now) {
+    return 0;
+  }
+
+  return payload.exp + 30 - now;
 }

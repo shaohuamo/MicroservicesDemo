@@ -8,12 +8,8 @@ internal sealed class NotificationDatabaseVerifier(NotificationDbConnectionFacto
     public async Task VerifyConnectionAsync(CancellationToken cancellationToken)
     {
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        await connection.ExecuteAsync(new CommandDefinition(
-            """
-            ALTER TABLE IF EXISTS public."Notifications"
-                ADD COLUMN IF NOT EXISTS "TraceParent" character varying(512),
-                ADD COLUMN IF NOT EXISTS "TraceState" character varying(512);
-            """,
+        await connection.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT 1;",
             cancellationToken: cancellationToken));
     }
 }

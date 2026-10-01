@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using ProductsMicroservice.Core.Diagnostics;
+using ProductsMicroservice.Core.Domain.Exceptions;
 using ProductsMicroservice.Core.DTO;
 using ProductsMicroservice.Core.ServiceContracts;
 
@@ -19,12 +20,14 @@ public class ProductsUpdaterTelemetryDecorator : IProductsUpdaterService
         _logger = logger;
     }
 
-    public async Task<ProductResponse> UpdateProductAsync(ProductUpdateRequest productUpdateRequest)
+    public async Task<ProductUpdateResult> UpdateProductAsync(ProductUpdateRequest productUpdateRequest, Guid idempotencyKey)
     {
         ArgumentNullException.ThrowIfNull(productUpdateRequest);
 
         var activity = Activity.Current;
         var stopwatch = Stopwatch.StartNew();
+        activity?.SetTag("idempotency.key", idempotencyKey.ToString("D"));
+        activity?.SetTag("idempotency.operation", "UpdateProduct");
 
         // Trace Instrumentation
         activity?.AddEvent(new("Update Product"));
@@ -44,23 +47,31 @@ public class ProductsUpdaterTelemetryDecorator : IProductsUpdaterService
             try
             {
                 _logger.LogInformation("Starting product update process");
-                ProductResponse response = await _innerService.UpdateProductAsync(productUpdateRequest);
+                ProductUpdateResult response = await _innerService.UpdateProductAsync(productUpdateRequest, idempotencyKey);
                 stopwatch.Stop();
 
                 // Metric Instrumentation
                 DiagnosticsConfig.UpdateProductHistogram.Record(stopwatch.Elapsed.TotalSeconds);
                 _logger.LogInformation(
-                    "Product and its outbox notification committed in {ElapsedMs} ms",
-                    stopwatch.Elapsed.TotalMilliseconds);
+                    "Product operation {Outcome} in {ElapsedMs} ms",
+                    response.IsReplay ? "replayed" : "committed", stopwatch.Elapsed.TotalMilliseconds);
                 // Trace Instrumentation
-                activity?.SetTag("product.updated", true);
+                activity?.SetTag("product.updated", !response.IsReplay);
                 activity?.SetTag("product.operation.committed", true);
+                activity?.SetTag("idempotency.outcome", response.IsReplay ? "replayed" : "updated");
+                activity?.SetTag("idempotency.replayed", response.IsReplay);
+                activity?.SetTag("idempotency.source", response.Source.ToString().ToLowerInvariant());
 
                 return response;
             }
             catch (Exception ex)
             {
                 stopwatch.Stop();
+                if (ex is IdempotencyPayloadConflictException)
+                {
+                    activity?.SetTag("idempotency.outcome", "payload_conflict");
+                    activity?.SetTag("idempotency.replayed", false);
+                }
                 _logger.LogError(ex, "Error occurred during product update flow");
                 // Trace Instrumentation
                 activity?.AddException(ex);

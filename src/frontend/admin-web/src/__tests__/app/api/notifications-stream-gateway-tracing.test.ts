@@ -12,6 +12,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/auth", () => ({ auth: mocks.auth }));
+vi.mock("@/lib/auth/gateway-session-proof", () => ({
+  getRefreshTokenRecordId: vi.fn(async () => "11111111-1111-1111-1111-111111111111"),
+  applyGatewaySessionProof: vi.fn(),
+}));
 vi.mock("@/lib/notifications/server-hub", () => ({
   registerNotificationConnection: mocks.registerConnection,
 }));
@@ -35,6 +39,9 @@ describe("notification stream gateway tracing", () => {
     const connection = {
       close: vi.fn(async () => undefined),
       refreshPresence: vi.fn(async () => undefined),
+      isRealtimeAvailable: () => true,
+      waitForRealtimeReady: vi.fn(async () => true),
+      getDisconnectGeneration: () => 0,
       activateLiveDelivery: () => [],
     };
     mocks.registerConnection.mockResolvedValue(connection);
@@ -60,7 +67,7 @@ describe("notification stream gateway tracing", () => {
         ?.parentSpanContext;
       gatewaySpanId = span?.spanContext().spanId ?? "";
       gatewayTraceparent = new Headers(init?.headers).get("traceparent") ?? "";
-      return Response.json({ items: [], nextAfterSequence: null, watermark: 0 });
+      return Response.json({ items: [], nextCursor: null, watermark: 0 });
     }));
 
     const nextSpan = getAuthTracer().startSpan("next request");

@@ -64,6 +64,16 @@ spec:
             secretKeyRef:
               name: admin-web-secrets
               key: auth-secret
+        - name: AUTH_GATEWAY_PROOF_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: gateway-auth-secrets
+              key: proof-key-id
+        - name: AUTH_GATEWAY_PROOF_KEY
+          valueFrom:
+            secretKeyRef:
+              name: gateway-auth-secrets
+              key: proof-key
         - name: AUTH_POSTGRES_HOST
           valueFrom:
             secretKeyRef:

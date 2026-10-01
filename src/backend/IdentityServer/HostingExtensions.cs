@@ -244,7 +244,12 @@ internal static class HostingExtensions
     {
         if (builder.Environment.IsDevelopment())
         {
-            return identityServerBuilder.AddDeveloperSigningCredential(persistKey: true);
+            var keysPath = builder.Configuration["DataProtection:KeysPath"];
+            var signingKeyFile = string.IsNullOrWhiteSpace(keysPath)
+                ? "tempkey.jwk"
+                : Path.Combine(keysPath, "tempkey.jwk");
+            return identityServerBuilder.AddDeveloperSigningCredential(
+                persistKey: true, filename: signingKeyFile);
         }
 
         var signingCredentialOptions = builder.Configuration

@@ -8,8 +8,8 @@ import {
 } from "@/lib/api/products";
 import type {
   ProductAddOperation,
-  ProductDeleteRequest,
-  ProductUpdateRequest,
+  ProductDeleteOperation,
+  ProductUpdateOperation,
 } from "@/types/product";
 
 const PRODUCTS_KEY = ["products"] as const;
@@ -42,7 +42,7 @@ export function useAddProduct() {
 export function useUpdateProduct() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (request: ProductUpdateRequest) => updateProduct(request),
+    mutationFn: (operation: ProductUpdateOperation) => updateProduct(operation),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: PRODUCTS_KEY });
     },
@@ -52,7 +52,7 @@ export function useUpdateProduct() {
 export function useDeleteProduct() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (request: ProductDeleteRequest) => deleteProduct(request),
+    mutationFn: (operation: ProductDeleteOperation) => deleteProduct(operation),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: PRODUCTS_KEY });
     },

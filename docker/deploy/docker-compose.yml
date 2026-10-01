@@ -7,8 +7,8 @@ services:
     volumes:
       - ../../configs/otel-collector-config.yml:/etc/otelcol/config.yaml
     ports:
-      - "4317:4317"  # OTLP gRPC
-      - "4318:4318"  # OTLP HTTP
+      - "14317:4317"  # OTLP gRPC
+      - "14318:4318"  # OTLP HTTP
       - "8889:8889"  # Prometheus exporter metrics
     networks:
       - app-network
@@ -105,7 +105,9 @@ services:
     image: redis:latest
     container_name: redis-container
     hostname: redis
-    command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru
+    command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru --appendonly yes --appendfsync everysec
+    volumes:
+     - redis_data:/data
     ports:
      - 6379:6379
     healthcheck:
@@ -138,7 +140,7 @@ services:
      - rabbitmq_data:/var/lib/rabbitmq
      - ../../configs/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins #enable prometheus plugin(expose metric endpoint)
     ports:
-     - 5672:5672
+     - 25672:5672
      - 15672:15672
      - 15692:15692   # Prometheus metrics
     healthcheck:
@@ -154,11 +156,13 @@ services:
    container_name: postgres-container
    hostname: postgres
    environment:
-    - POSTGRES_USER=postgres
-    - POSTGRES_PASSWORD=admin
+    - POSTGRES_USER=${POSTGRES_USER:-postgres}
+    - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-admin}
+    - GATEWAY_DB_PASSWORD=${GATEWAY_DB_PASSWORD}
    ports:
-    - "5432:5432"
+    - "15432:5432"
    volumes:
+    - postgres_data:/var/lib/postgresql/data
     - ../../configs/postgres/init:/docker-entrypoint-initdb.d
     - ../../configs/postgres/conf/postgresql.conf:/etc/postgresql/postgresql.conf
    command: postgres -c config_file=/etc/postgresql/postgresql.conf
@@ -194,8 +198,8 @@ services:
      - POSTGRES__HOST=postgres
      - POSTGRES__PORT=5432
      - POSTGRES__DATABASE=productsdatabase
-     - POSTGRES__USER=postgres
-     - POSTGRES__PASSWORD=admin
+     - POSTGRES__USER=${POSTGRES_USER:-postgres}
+     - POSTGRES__PASSWORD=${POSTGRES_PASSWORD:-admin}
      - POSTGRES__MaxRetryCount=5
      - POSTGRES__MaxRetryDelaySeconds=10
      - RabbitMQ__HostName=rabbitmq
@@ -217,6 +221,7 @@ services:
      - Redis__ConnectRetry=5
      - Redis__ConnectTimeout=5000
      - Redis__SyncTimeout=5000
+     - Redis__AsyncTimeout=2000
      - Redis__MaxReconnectDelay=5000
      - Redis__InitialReconnectDelay=1000
      - Redis__AbortOnConnectFail=false
@@ -240,8 +245,6 @@ services:
        condition: service_healthy
       postgres: #service name
        condition: service_healthy
-      redis:
-       condition: service_healthy
       consul:
        condition: service_healthy
   identityserver:
@@ -253,8 +256,8 @@ services:
      - POSTGRES__HOST=postgres
      - POSTGRES__PORT=5432
      - POSTGRES__DATABASE=identitydatabase
-     - POSTGRES__USER=postgres
-     - POSTGRES__PASSWORD=admin
+     - POSTGRES__USER=${POSTGRES_USER:-postgres}
+     - POSTGRES__PASSWORD=${POSTGRES_PASSWORD:-admin}
      - POSTGRES__MaxRetryCount=5
      - POSTGRES__MaxRetryDelaySeconds=10
      - IdentityServer__IssuerUri=${IDENTITYSERVER_PUBLIC_URL:-http://localhost:8085}
@@ -308,8 +311,18 @@ services:
     - Authentication__Audience=gateway-api
     - Authentication__RequireHttpsMetadata=false
     - Authentication__DenylistRedisConnectionString=redis:6379
+    - Authentication__DenylistRedis__AbortOnConnectFail=false
+    - Authentication__DenylistRedis__ConnectRetry=1
+    - Authentication__DenylistRedis__ConnectTimeout=1500
+    - Authentication__DenylistRedis__SyncTimeout=1500
+    - Authentication__DenylistRedis__AsyncTimeout=1500
     - Authentication__AccessTokenDenylistPrefix=admin-web:access-token-denylist
     - Authentication__DenylistFailClosed=true
+    - Authentication__SessionFallback__Enabled=${GATEWAY_SESSION_FALLBACK_ENABLED:-true}
+    - Authentication__SessionFallback__PostgresConnectionString=Host=postgres;Port=5432;Database=adminwebdatabase;Username=gateway_auth_reader;Pooling=true;Maximum Pool Size=20;Timeout=3;Command Timeout=3
+    - Authentication__SessionFallback__PostgresPassword=${GATEWAY_DB_PASSWORD}
+    - Authentication__SessionFallback__ProofKeys__Current__Id=${AUTH_GATEWAY_PROOF_KEY_ID:-v1}
+    - Authentication__SessionFallback__ProofKeys__Current__Secret=${AUTH_GATEWAY_PROOF_KEY}
     - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
     - OTEL_RESOURCE_ATTRIBUTES=service.name=apigateway,deployment.environment=production 
     ports:
@@ -420,6 +433,7 @@ services:
       - API_GATEWAY_INTERNAL_URL=http://apigateway:8080
       - OTEL_COLLECTOR_INTERNAL_URL=http://otel-collector:4318
       - FRONTEND_PUBLIC_URL=${FRONTEND_PUBLIC_URL:-http://localhost:3000}
+      - APP_ENV=Production
       - AUTH_URL=${FRONTEND_PUBLIC_URL:-http://localhost:3000}
       - NEXTAUTH_URL=${FRONTEND_PUBLIC_URL:-http://localhost:3000}
       - IDENTITYSERVER_PUBLIC_URL=${IDENTITYSERVER_PUBLIC_URL:-http://localhost:8085}
@@ -428,16 +442,18 @@ services:
       - IDENTITYSERVER_FRONTEND_CLIENT_SECRET=${IDENTITYSERVER_FRONTEND_CLIENT_SECRET:-frontend-secret}
       - AUTH_REFRESH_TOKEN_ABSOLUTE_LIFETIME_SECONDS=${REFRESH_TOKEN_ABSOLUTE_LIFETIME_SECONDS:-2592000}
       - AUTH_SECRET=${AUTH_SECRET:-dev-auth-session-secret-change-me-please}
+      - AUTH_GATEWAY_PROOF_KEY_ID=${AUTH_GATEWAY_PROOF_KEY_ID:-v1}
+      - AUTH_GATEWAY_PROOF_KEY=${AUTH_GATEWAY_PROOF_KEY}
       - AUTH_POSTGRES_HOST=postgres
       - AUTH_POSTGRES_PORT=5432
       - AUTH_POSTGRES_DATABASE=adminwebdatabase
       - AUTH_POSTGRES_USER=${POSTGRES_USER:-postgres}
       - AUTH_POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-admin}
-       - AUTH_REDIS_URL=redis://redis:6379
-       - AUTH_ACCESS_TOKEN_DENYLIST_PREFIX=admin-web:access-token-denylist
-       - NOTIFICATIONS_REDIS_URL=redis://redis:6379
-       - NOTIFICATIONS_SSE_HEARTBEAT_SECONDS=15
-       - NOTIFICATIONS_PRESENCE_TTL_SECONDS=45
+      - AUTH_REDIS_URL=redis://redis:6379
+      - AUTH_ACCESS_TOKEN_DENYLIST_PREFIX=admin-web:access-token-denylist
+      - NOTIFICATIONS_REDIS_URL=redis://redis:6379
+      - NOTIFICATIONS_SSE_HEARTBEAT_SECONDS=15
+      - NOTIFICATIONS_PRESENCE_TTL_SECONDS=45
     ports:
       - 3000:3000
     networks:
@@ -457,7 +473,9 @@ networks:
   app-network:
     driver: bridge
 volumes:
+  redis_data:
   rabbitmq_data:
+  postgres_data:
   prometheus_data:
   loki_storage:
   identityserver_dataprotection:

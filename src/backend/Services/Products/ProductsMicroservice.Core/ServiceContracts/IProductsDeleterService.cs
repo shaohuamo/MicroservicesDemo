@@ -1,4 +1,6 @@
-﻿namespace ProductsMicroservice.Core.ServiceContracts;
+using ProductsMicroservice.Core.DTO;
+
+namespace ProductsMicroservice.Core.ServiceContracts;
 
 public interface IProductsDeleterService
 {
@@ -8,5 +10,5 @@ public interface IProductsDeleterService
     /// <param name="productId">ProductId to search and delete</param>
     /// <param name="expectedVersion">Version originally read by the client.</param>
     /// <returns>A task that completes after a successful deletion.</returns>
-    Task DeleteProductAsync(Guid productId, int expectedVersion);
+    Task<ProductDeleteResult> DeleteProductAsync(Guid productId, int expectedVersion, Guid idempotencyKey);
 }

@@ -14,7 +14,21 @@ export function logDevelopmentHttp(message: string, data: Record<string, unknown
     return;
   }
 
-  console.info(`[dev-http] ${message}`, data);
+  console.info(`[dev-http] ${message}`, redactLogValue(data));
+}
+
+function redactLogValue(value: unknown, key = ""): unknown {
+  if (/authorization|cookie|token|secret|signature|proof|session.?id|record.?id|body/i.test(key)) {
+    return "[REDACTED]";
+  }
+  if (Array.isArray(value)) return value.map((entry) => redactLogValue(entry));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([name, entry]) => [name, redactLogValue(entry, name)]));
+  }
+  if (typeof value === "string") {
+    return value.replace(/Bearer\s+[^\s]+/gi, "Bearer [REDACTED]");
+  }
+  return value;
 }
 
 export function getHeadersForLog(headers: HeadersInit | undefined) {
@@ -22,15 +36,16 @@ export function getHeadersForLog(headers: HeadersInit | undefined) {
     return {};
   }
 
-  return Object.fromEntries(new Headers(headers).entries());
+  return redactLogValue(Object.fromEntries(new Headers(headers).entries())) as Record<string, unknown>;
 }
 
-export function getRequestHeadersForLog(headers: Headers) {
+export function getRequestHeadersForLog(headers: Headers, omittedHeaders: readonly string[] = []) {
   const safeHeaders = new Headers(headers);
+  for (const name of omittedHeaders) safeHeaders.delete(name);
   if (safeHeaders.has("idempotency-key")) {
     safeHeaders.set("idempotency-key", "[REDACTED]");
   }
-  return Object.fromEntries(safeHeaders.entries());
+  return redactLogValue(Object.fromEntries(safeHeaders.entries())) as Record<string, unknown>;
 }
 
 export function getBodyForLog(body: BodyInit | null | undefined) {

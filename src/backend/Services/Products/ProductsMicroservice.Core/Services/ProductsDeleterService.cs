@@ -1,5 +1,5 @@
 using CommonService.Messages;
-using Microsoft.Extensions.Logging;
+using ProductsMicroservice.Core.DTO;
 using ProductsMicroservice.Core.Domain.Exceptions;
 using ProductsMicroservice.Core.Domain.RepositoryContracts;
 using ProductsMicroservice.Core.Messaging;
@@ -12,25 +12,19 @@ public class ProductsDeleterService : IProductsDeleterService
 {
     private readonly IProductsRepository _productsRepository;
     private readonly IProductOperationOutboxWriter _outboxWriter;
-    private readonly IUnitOfWork _unitOfWork;
     private readonly IProductOperationContextAccessor _operationContextAccessor;
-    private readonly ILogger<ProductsDeleterService> _logger;
 
     public ProductsDeleterService(
         IProductsRepository productsRepository,
         IProductOperationOutboxWriter outboxWriter,
-        IUnitOfWork unitOfWork,
-        IProductOperationContextAccessor operationContextAccessor,
-        ILogger<ProductsDeleterService> logger)
+        IProductOperationContextAccessor operationContextAccessor)
     {
         _productsRepository = productsRepository;
         _outboxWriter = outboxWriter;
-        _unitOfWork = unitOfWork;
         _operationContextAccessor = operationContextAccessor;
-        _logger = logger;
     }
 
-    public async Task DeleteProductAsync(Guid productId, int expectedVersion)
+    public async Task<ProductDeleteResult> DeleteProductAsync(Guid productId, int expectedVersion, Guid idempotencyKey)
     {
         Guid notificationId = Guid.CreateVersion7();
         var operationContext = _operationContextAccessor.GetCurrent();
@@ -47,6 +41,6 @@ public class ProductsDeleterService : IProductsDeleterService
             deletedProduct.Version);
 
         await _outboxWriter.WriteAsync(message);
-        await _unitOfWork.SaveChangesAsync();
+        return new ProductDeleteResult(true, false);
     }
 }

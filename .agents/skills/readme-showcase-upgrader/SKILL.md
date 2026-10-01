@@ -1,28 +1,30 @@
 ---
 name: readme-showcase-upgrader
-description: Upgrade a software project's README into a polished showcase by researching strong GitHub examples, extracting layout, badge, visual, and copywriting patterns, and applying them to the local README. Use this whenever the user wants README optimization, better project presentation, portfolio-ready documentation, stronger badges or screenshots, or asks to benchmark their README against top GitHub repositories, even if they do not mention a skill.
+description: Edit this repository's root README while keeping README.md and README.en.md aligned, or upgrade its presentation with evidence-based structure, badges, and visuals. Use for focused README edits, readability improvements, showcase redesigns, and GitHub README benchmarking; research exemplars only for broad redesign or benchmarking requests.
 ---
 
 # README Showcase Upgrader
 
-Turn a technically solid repository into a README that looks credible, readable, and portfolio-ready without turning it into marketing fluff.
+Keep this repository's root READMEs accurate, aligned, and easy to read. For broader presentation work, make them credible and portfolio-ready without turning them into marketing fluff.
 
 ## What this skill does
 
-1. Inspect the local repository to understand the real tech stack, architecture, assets, and evidence available.
-2. Research strong GitHub repositories in the same domain or stack.
-3. Extract reusable patterns from those README files:
+1. Read the affected README sections and inspect the repository for the facts needed to edit them accurately.
+2. For a broad redesign or a request to benchmark other projects, research strong GitHub repositories in the same domain or stack and extract reusable patterns:
    - layout and section order
    - badge grouping and styling
    - architecture visualization patterns
    - screenshot/image presentation
    - concise technical copywriting tone
-4. Rewrite the local `README.md` directly by default, then explain the meaningful improvements briefly.
+3. Make the requested README change at the appropriate scale and keep the Chinese and English root READMEs aligned.
+4. Explain the meaningful changes briefly.
 
 ## When to use this skill
 
 Use this skill when the user wants any of the following:
 
+- make a focused change to the root `README.md`
+- improve readability or break up long README paragraphs
 - improve or modernize a project README
 - make a repository look more professional or industry-standard
 - add or reorganize badges
@@ -31,13 +33,13 @@ Use this skill when the user wants any of the following:
 - turn observability or performance artifacts into cleaner README sections
 - strengthen the repository as a portfolio or showcase project
 
-Do not use this skill for generic prose editing that is unrelated to repository documentation.
+Do not use this skill for documentation files other than the root READMEs or generic prose editing unrelated to repository documentation.
 
 ## Working style
 
 ### 1. Start with the local repository
 
-Read the local `README.md` first. Then inspect the repository for evidence you can safely use:
+Read the relevant sections of `README.md` and `README.en.md` first. For larger changes, inspect the repository for evidence you can safely use:
 
 - backend, frontend, infrastructure, and test dependencies
 - architecture diagrams and screenshots
@@ -47,7 +49,9 @@ Read the local `README.md` first. Then inspect the repository for evidence you c
 
 Treat the repository as the source of truth. Research should improve presentation, not replace reality.
 
-### 2. Research exemplar repositories
+### 2. Research exemplar repositories for broad redesigns
+
+Do this when the user requests a substantial presentation upgrade or comparison with public projects. For a focused edit, work from the local repository without turning the task into a showcase rewrite.
 
 Use GitHub MCP repository search to find 3-6 high-signal public repositories that match the project's domain, architecture, or primary stack.
 
@@ -62,7 +66,7 @@ Then use GitHub MCP file retrieval to read each candidate repository's `README.m
 
 Focus on patterns, not copying. Never lift branded phrasing, distinctive headlines, or unique copy from exemplar projects.
 
-### 3. Extract patterns before rewriting
+### 3. Extract patterns before a broad rewrite
 
 Pull out the parts that actually improve reader understanding:
 
@@ -75,7 +79,21 @@ Pull out the parts that actually improve reader understanding:
 
 If a pattern is flashy but does not help the user understand the project faster, skip it.
 
-## Rewrite guidance
+## Editing guidance
+
+### Focused edits and language sync
+
+For a focused request, change only the relevant sections. When changing the root `README.md`, update corresponding content in the root `README.en.md` in the same task. Translate meaning rather than wording: preserve facts, commands, links, images, and level of detail while writing natural English.
+
+Keep corresponding sections and quick-navigation links aligned. If a heading changes, check the matching anchor in each language. Inspect the relevant diff in both files and preserve unrelated edits. Follow an explicit request to change only one language.
+
+### Paragraph readability
+
+Avoid long, dense paragraphs in both READMEs. Give each paragraph one main idea. Use numbered steps for a sequence, bullets for parallel points, or a table when readers need to compare values. Keep prose natural: do not split every sentence into its own item or add bold labels and punctuation just to create a list.
+
+## Showcase rewrite guidance
+
+Apply the following presentation guidance when the user asks for a broad README redesign. Keep focused edits confined to their requested sections.
 
 ### README opening
 
@@ -184,9 +202,9 @@ When the evidence is visual only, use cautious wording such as:
 
 Default behavior:
 
-1. Rewrite `README.md` directly if the repository is writable and the user asked for improvement.
+1. Edit the relevant README sections directly if the repository is writable and the user asked for improvement; reserve a full rewrite for a broad redesign request.
 2. Preserve valuable existing material unless it is redundant or clearly weaker than the new structure.
-3. Preserve the repository's language strategy. If the README is bilingual, keep it bilingual unless the user asks to simplify it.
+3. Keep `README.md` and `README.en.md` aligned as described above unless the user explicitly requests a single-language change.
 4. After editing, provide a short rationale that explains the meaningful upgrades.
 
 If the user asks for comparison first, provide a compact before/after or pattern comparison, then the rewrite.
@@ -201,12 +219,15 @@ If the user asks for comparison first, provide a compact before/after or pattern
 
 ## Checklist
 
-Before finishing, make sure the rewritten README:
+Before finishing any root README edit, check that the change:
 
-- reflects the real stack
-- has a readable opening screen
-- uses consistent badge styling
-- presents diagrams and screenshots clearly
-- keeps setup instructions easy to follow
-- sounds technically credible
-- upgrades the project's showcase quality without exaggeration
+- reflects the real stack and preserves technical details
+- keeps paragraphs easy to scan without mechanical formatting
+- aligns corresponding content and navigation in both root READMEs, unless the user requested one language only
+
+For a showcase redesign, also check that the READMEs:
+
+- have a readable opening screen and consistent badge styling
+- present diagrams and screenshots clearly
+- keep setup instructions easy to follow
+- sound technically credible without exaggeration

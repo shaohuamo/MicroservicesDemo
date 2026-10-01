@@ -154,20 +154,20 @@ public class ProductsControllerTests
     [Fact]
     public async Task UpdateProductAsync_ShouldReturnBadRequest_WhenRequestIsNull()
     {
-        var result = await _controller.UpdateProductAsync(null);
+        var result = await _controller.UpdateProductAsync(null, IdempotencyKey.ToString("D"));
 
         result.Should().BeOfType<BadRequestObjectResult>();
-        _updaterMock.Verify(x => x.UpdateProductAsync(It.IsAny<ProductUpdateRequest>()), Times.Never);
+        _updaterMock.Verify(x => x.UpdateProductAsync(It.IsAny<ProductUpdateRequest>(), IdempotencyKey), Times.Never);
     }
 
     [Fact]
     public async Task UpdateProductAsync_ShouldPropagateServiceException()
     {
         var request = new ProductUpdateRequest();
-        _updaterMock.Setup(x => x.UpdateProductAsync(request))
+        _updaterMock.Setup(x => x.UpdateProductAsync(request, IdempotencyKey))
             .ThrowsAsync(new InvalidOperationException("save failed"));
 
-        Func<Task> action = () => _controller.UpdateProductAsync(request);
+        Func<Task> action = () => _controller.UpdateProductAsync(request, IdempotencyKey.ToString("D"));
 
         await action.Should().ThrowAsync<InvalidOperationException>();
     }
@@ -177,9 +177,9 @@ public class ProductsControllerTests
     {
         var request = new ProductUpdateRequest();
         var response = new ProductResponse();
-        _updaterMock.Setup(x => x.UpdateProductAsync(request)).ReturnsAsync(response);
+        _updaterMock.Setup(x => x.UpdateProductAsync(request, IdempotencyKey)).ReturnsAsync(new ProductUpdateResult(response, false));
 
-        var result = await _controller.UpdateProductAsync(request);
+        var result = await _controller.UpdateProductAsync(request, IdempotencyKey.ToString("D"));
 
         result.Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(response);
     }
@@ -188,28 +188,66 @@ public class ProductsControllerTests
 
     #region Delete Product
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("not-a-guid")]
+    [InlineData("6f9619ff8b86d011b42d00c04fc964ff")]
+    [InlineData("01992166-47b2-7f43-bc60-4750978888ac")]
+    public async Task UpdateAndDelete_ShouldRejectInvalidKeysWithoutCallingServices(string? key)
+    {
+        await FluentActions.Invoking(() => _controller.UpdateProductAsync(new ProductUpdateRequest(), key))
+            .Should().ThrowAsync<ProductsMicroservice.Core.Domain.Exceptions.IdempotencyKeyInvalidException>();
+        await FluentActions.Invoking(() => _controller.DeleteProductAsync(Guid.NewGuid(), new ProductDeleteRequest(), key))
+            .Should().ThrowAsync<ProductsMicroservice.Core.Domain.Exceptions.IdempotencyKeyInvalidException>();
+        _updaterMock.Verify(x => x.UpdateProductAsync(It.IsAny<ProductUpdateRequest>(), It.IsAny<Guid>()), Times.Never);
+        _deleterMock.Verify(x => x.DeleteProductAsync(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<Guid>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UpdateAndDelete_ShouldPreserveBodiesAndExposeReplayHeaders(bool replay)
+    {
+        var request = new ProductUpdateRequest();
+        var product = new ProductResponse(Guid.NewGuid(), "Original snapshot", 10, 2, 2);
+        _updaterMock.Setup(x => x.UpdateProductAsync(request, IdempotencyKey))
+            .ReturnsAsync(new ProductUpdateResult(product, replay) { Source = IdempotencyResultSource.Redis });
+        _deleterMock.Setup(x => x.DeleteProductAsync(product.ProductId, 2, IdempotencyKey))
+            .ReturnsAsync(new ProductDeleteResult(true, replay) { Source = IdempotencyResultSource.Redis });
+
+        var updated = await _controller.UpdateProductAsync(request, IdempotencyKey.ToString("D"));
+        updated.Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(product);
+        _controller.Response.Headers["Idempotency-Outcome"].ToString().Should().Be(replay ? "replayed" : "updated");
+        _controller.Response.Headers["Idempotency-Replayed"].ToString().Should().Be(replay ? "true" : "false");
+        var deleted = await _controller.DeleteProductAsync(product.ProductId, new ProductDeleteRequest { Version = 2 }, IdempotencyKey.ToString("D"));
+        deleted.Should().BeOfType<OkObjectResult>().Which.Value.Should().Be(true);
+        _controller.Response.Headers["Idempotency-Outcome"].ToString().Should().Be(replay ? "replayed" : "deleted");
+        _controller.Response.Headers["Idempotency-Replayed"].ToString().Should().Be(replay ? "true" : "false");
+    }
+
     [Fact]
     public async Task DeleteProductAsync_ShouldReturnOk_WhenSuccessful()
     {
         var productId = Guid.NewGuid();
         var request = new ProductDeleteRequest { Version = 2 };
-        _deleterMock.Setup(x => x.DeleteProductAsync(productId, request.Version))
-            .Returns(Task.CompletedTask);
+        _deleterMock.Setup(x => x.DeleteProductAsync(productId, request.Version, IdempotencyKey))
+            .ReturnsAsync(new ProductDeleteResult(true, false));
 
-        var result = await _controller.DeleteProductAsync(productId, request);
+        var result = await _controller.DeleteProductAsync(productId, request, IdempotencyKey.ToString("D"));
 
         result.Should().BeOfType<OkObjectResult>().Which.Value.Should().Be(true);
-        _deleterMock.Verify(x => x.DeleteProductAsync(productId, request.Version), Times.Once);
+        _deleterMock.Verify(x => x.DeleteProductAsync(productId, request.Version, IdempotencyKey), Times.Once);
     }
 
     [Fact]
     public async Task DeleteProductAsync_ShouldReturnBadRequest_WhenBodyIsMissing()
     {
-        var result = await _controller.DeleteProductAsync(Guid.NewGuid(), null);
+        var result = await _controller.DeleteProductAsync(Guid.NewGuid(), null, IdempotencyKey.ToString("D"));
 
         result.Should().BeOfType<BadRequestObjectResult>();
         _deleterMock.Verify(
-            x => x.DeleteProductAsync(It.IsAny<Guid>(), It.IsAny<int>()),
+            x => x.DeleteProductAsync(It.IsAny<Guid>(), It.IsAny<int>(), IdempotencyKey),
             Times.Never);
     }
 

@@ -13,6 +13,9 @@ namespace ProductsMicroservice.Core.Diagnostics
 
         public static readonly UpDownCounter<int> ProductsCounter = ProductMeter.CreateUpDownCounter<int>("current_products", "products", "Number of products");
 
+        public static readonly Counter<long> CacheReadFallbackCounter = ProductMeter.CreateCounter<long>(
+            "product.cache_db_fallback", "requests", "Product reads that fell back to PostgreSQL");
+
         // Application service operation duration; excludes browser E2E and individual database command duration.
         public static readonly Histogram<double> AddProductHistogram = ProductMeter.CreateHistogram(
             "product.add_product.latency",

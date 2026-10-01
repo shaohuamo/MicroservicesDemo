@@ -44,20 +44,3 @@ spec:
           value: "5"
         - name: POSTGRES__MaxRetryDelaySeconds
           value: "10"
-        - name: Redis__ConnectionString
-          valueFrom:
-            secretKeyRef:
-              name: products-secrets
-              key: redis-connection-string
-        - name: Redis__ConnectRetry
-          value: "5"
-        - name: Redis__ConnectTimeout
-          value: "5000"
-        - name: Redis__SyncTimeout
-          value: "5000"
-        - name: Redis__MaxReconnectDelay
-          value: "5000"
-        - name: Redis__InitialReconnectDelay
-          value: "1000"
-        - name: Redis__AbortOnConnectFail
-          value: "false"

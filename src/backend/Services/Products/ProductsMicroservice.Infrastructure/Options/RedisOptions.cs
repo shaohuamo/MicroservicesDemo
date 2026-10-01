@@ -9,6 +9,7 @@
         public int ConnectRetry { get; set; } = 3;
         public int ConnectTimeout { get; set; } = 5000;
         public int SyncTimeout { get; set; } = 5000;
+        public int AsyncTimeout { get; set; } = 2000;
         public int MaxReconnectDelay { get; set; } = 5000;
         public int InitialReconnectDelay { get; set; } = 1000;
         public bool AbortOnConnectFail { get; set; } = false;

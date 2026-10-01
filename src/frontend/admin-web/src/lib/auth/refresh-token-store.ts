@@ -265,6 +265,23 @@ export async function getRefreshTokenRecord(id: string): Promise<RefreshTokenRec
   };
 }
 
+export async function refreshTokenRecordExists(id: string): Promise<boolean> {
+  await verifySchema();
+
+  const pool = await getPool();
+  const result = await executeWithRetry("SELECT", "auth_refresh_tokens", () =>
+    pool.query(
+      `
+        SELECT 1
+        FROM auth_refresh_tokens
+        WHERE id = $1;
+      `,
+      [id],
+    ),
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
 export async function updateRefreshTokenRecord(id: string, refreshToken: string) {
   await verifySchema();
 

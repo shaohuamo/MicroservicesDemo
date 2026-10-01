@@ -109,7 +109,7 @@
           "UserId" = @UserId;
       ]]></Select_Notification_003>
 
-      <!-- Gets pending or retryable deliveries after a sequence up to the requested replay watermark. -->
+      <!-- Gets all in-app-unacknowledged deliveries within a fixed watermark, newest operation first. -->
       <Select_Notification_004><![CDATA[
         SELECT
           "NotificationId",
@@ -128,45 +128,38 @@
           public."Notifications"
         WHERE
               "UserId" = @UserId
-          AND "SequenceNumber" > @AfterSequence
           AND "SequenceNumber" <= @Watermark
-          AND "DeliveryStatus" IN ('Pending', 'AwaitingSseAck', 'RetryScheduled', 'Failed')
+          AND "InAppAcknowledgedAtUtc" IS NULL
+          AND "DeliveryStatus" <> 'DeliveredInApp'
+          AND (@BeforeOccurredAtUtc IS NULL OR
+               ("OccurredAtUtc", "SequenceNumber") < (@BeforeOccurredAtUtc, @BeforeSequence))
         ORDER BY
-          "SequenceNumber" ASC
+          "OccurredAtUtc" DESC, "SequenceNumber" DESC
         LIMIT
           @Take;
       ]]></Select_Notification_004>
 
       <!-- Acknowledges an in-app delivery and returns whether the notification exists for the user. -->
       <Update_Notification_001><![CDATA[
-        WITH updated AS(
-          UPDATE
-            public."Notifications"
+        WITH updated AS (
+          UPDATE public."Notifications"
           SET
-            "DeliveryStatus" = 'DeliveredInApp',
-            "DeliveredAtUtc" = COALESCE("DeliveredAtUtc", CURRENT_TIMESTAMP),
-            "NextAttemptAtUtc" = NULL,
-            "AckDeadlineUtc" = NULL,
-            "LockedBy" = NULL,
-            "LockedUntilUtc" = NULL,
-            "Version" = "Version" + 1
-          WHERE
-                "NotificationId" = @NotificationId
-            AND "UserId" = @UserId
-            AND "DeliveryStatus" IN ('Pending', 'AwaitingSseAck', 'RetryScheduled', 'Failed')
-          RETURNING 
-            1)
-        SELECT
-          EXISTS(SELECT 1 FROM updated)
-            OR EXISTS(
-              SELECT
-                1
-              FROM
-                public."Notifications"
-              WHERE
-                    "NotificationId" = @NotificationId
-                AND "UserId" = @UserId
-            );
+            "InAppAcknowledgedAtUtc" = CURRENT_TIMESTAMP,
+            "DeliveryStatus" = CASE WHEN "DeliveryStatus" IN ('Pending', 'AwaitingSseAck', 'RetryScheduled', 'Failed')
+              THEN 'DeliveredInApp' ELSE "DeliveryStatus" END,
+            "DeliveredAtUtc" = CASE WHEN "DeliveryStatus" IN ('Pending', 'AwaitingSseAck', 'RetryScheduled', 'Failed')
+              THEN COALESCE("DeliveredAtUtc", CURRENT_TIMESTAMP) ELSE "DeliveredAtUtc" END,
+            "NextAttemptAtUtc" = CASE WHEN "DeliveryStatus" = 'SendingEmail' THEN "NextAttemptAtUtc" ELSE NULL END,
+            "AckDeadlineUtc" = CASE WHEN "DeliveryStatus" = 'SendingEmail' THEN "AckDeadlineUtc" ELSE NULL END,
+            "LockedBy" = CASE WHEN "DeliveryStatus" = 'SendingEmail' THEN "LockedBy" ELSE NULL END,
+            "LockedUntilUtc" = CASE WHEN "DeliveryStatus" = 'SendingEmail' THEN "LockedUntilUtc" ELSE NULL END,
+            "Version" = CASE WHEN "DeliveryStatus" IN ('SendingEmail', 'DeliveredEmail') THEN "Version" ELSE "Version" + 1 END
+          WHERE "NotificationId" = @NotificationId AND "UserId" = @UserId
+            AND "InAppAcknowledgedAtUtc" IS NULL
+          RETURNING 1
+        )
+        SELECT EXISTS(SELECT 1 FROM updated)
+          OR EXISTS(SELECT 1 FROM public."Notifications" WHERE "NotificationId" = @NotificationId AND "UserId" = @UserId);
       ]]></Update_Notification_001>
 
       <!-- Marks one notification as read and completes eligible in-app delivery states. -->
@@ -176,6 +169,7 @@
               public."Notifications"
             SET
               "ReadAtUtc" = COALESCE("ReadAtUtc", CURRENT_TIMESTAMP),
+              "InAppAcknowledgedAtUtc" = COALESCE("InAppAcknowledgedAtUtc", CURRENT_TIMESTAMP),
               "DeliveryStatus" = CASE
                 WHEN "DeliveryStatus" IN ('Pending', 'AwaitingSseAck', 'RetryScheduled', 'Failed')
                 THEN 'DeliveredInApp'
@@ -235,6 +229,7 @@
           public."Notifications"
         SET
           "ReadAtUtc" = CURRENT_TIMESTAMP,
+          "InAppAcknowledgedAtUtc" = COALESCE("InAppAcknowledgedAtUtc", CURRENT_TIMESTAMP),
           "DeliveryStatus" = CASE
             WHEN "DeliveryStatus" IN ('Pending', 'AwaitingSseAck', 'RetryScheduled', 'Failed')
             THEN 'DeliveredInApp'
@@ -372,8 +367,10 @@
         UPDATE
           public."Notifications"
         SET
-          "DeliveryStatus" = 'RetryScheduled',
-          "NextAttemptAtUtc" = @NextAttemptAtUtc,
+          "DeliveredAtUtc" = CASE WHEN "InAppAcknowledgedAtUtc" IS NOT NULL
+            THEN COALESCE("DeliveredAtUtc", "InAppAcknowledgedAtUtc") ELSE "DeliveredAtUtc" END,
+          "DeliveryStatus" = CASE WHEN "InAppAcknowledgedAtUtc" IS NOT NULL THEN 'DeliveredInApp' ELSE 'RetryScheduled' END,
+          "NextAttemptAtUtc" = CASE WHEN "InAppAcknowledgedAtUtc" IS NOT NULL THEN NULL ELSE @NextAttemptAtUtc END,
           "AckDeadlineUtc" = NULL,
           "LastError" = @ErrorCode,
           "LockedBy" = NULL,
@@ -391,7 +388,9 @@
         UPDATE
           public."Notifications"
         SET
-          "DeliveryStatus" = 'Failed',
+          "DeliveredAtUtc" = CASE WHEN "InAppAcknowledgedAtUtc" IS NOT NULL
+            THEN COALESCE("DeliveredAtUtc", "InAppAcknowledgedAtUtc") ELSE "DeliveredAtUtc" END,
+          "DeliveryStatus" = CASE WHEN "InAppAcknowledgedAtUtc" IS NOT NULL THEN 'DeliveredInApp' ELSE 'Failed' END,
           "NextAttemptAtUtc" = NULL,
           "AckDeadlineUtc" = NULL,
           "LastError" = @ErrorCode,

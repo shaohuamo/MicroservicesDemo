@@ -1,6 +1,5 @@
 using AutoMapper;
 using CommonService.Messages;
-using Microsoft.Extensions.Logging;
 using ProductsMicroservice.Core.Domain.Entities;
 using ProductsMicroservice.Core.Domain.Exceptions;
 using ProductsMicroservice.Core.Domain.Services;
@@ -17,27 +16,21 @@ public class ProductsUpdaterService : IProductsUpdaterService
     private readonly IMapper _mapper;
     private readonly IProductsRepository _productsRepository;
     private readonly IProductOperationOutboxWriter _outboxWriter;
-    private readonly IUnitOfWork _unitOfWork;
     private readonly IProductOperationContextAccessor _operationContextAccessor;
-    private readonly ILogger<ProductsUpdaterService> _logger;
 
     public ProductsUpdaterService(
         IProductsRepository productsRepository,
         IMapper mapper,
         IProductOperationOutboxWriter outboxWriter,
-        IUnitOfWork unitOfWork,
-        IProductOperationContextAccessor operationContextAccessor,
-        ILogger<ProductsUpdaterService> logger)
+        IProductOperationContextAccessor operationContextAccessor)
     {
         _productsRepository = productsRepository;
         _mapper = mapper;
         _outboxWriter = outboxWriter;
-        _unitOfWork = unitOfWork;
         _operationContextAccessor = operationContextAccessor;
-        _logger = logger;
     }
 
-    public async Task<ProductResponse> UpdateProductAsync(ProductUpdateRequest productUpdateRequest)
+    public async Task<ProductUpdateResult> UpdateProductAsync(ProductUpdateRequest productUpdateRequest, Guid idempotencyKey)
     {
         ArgumentNullException.ThrowIfNull(productUpdateRequest);
 
@@ -77,8 +70,7 @@ public class ProductsUpdaterService : IProductsUpdaterService
             updatedProduct.DisplayName, updatedProduct.Version);
 
         await _outboxWriter.WriteAsync(message);
-        await _unitOfWork.SaveChangesAsync();
 
-        return _mapper.Map<ProductResponse>(updatedProduct);
+        return new ProductUpdateResult(_mapper.Map<ProductResponse>(updatedProduct), false);
     }
 }

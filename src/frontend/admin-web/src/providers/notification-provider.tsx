@@ -18,7 +18,7 @@ import {
   markNotificationAsRead,
 } from "@/lib/api/notifications";
 import { normalizeNotificationItem } from "@/lib/notifications/notification-message";
-import { persistAcknowledgedCursor, readStoredCursor } from "@/lib/notifications/cursor";
+import { retryNotificationAcknowledgement } from "@/lib/notifications/ack-retry";
 import { NotificationToastViewport } from "@/components/notifications/notification-toast-viewport";
 import type { NotificationItem } from "@/types/notification";
 
@@ -43,6 +43,7 @@ type NotificationContextValue = {
 };
 
 const NotificationContext = createContext<NotificationContextValue | null>(null);
+const RETRY_DELAY_MS = 5_000;
 
 function mergeNotifications(
   existing: NotificationItem[],
@@ -86,7 +87,21 @@ export function NotificationProvider({
   const knownNotificationIdsRef = useRef(new Set<string>());
   const realtimeIdsDuringHistoryRef = useRef(new Set<string>());
   const historyRequestActiveRef = useRef(false);
-  const ackChainRef = useRef(Promise.resolve());
+  const ackTasksRef = useRef(new Map<string, Promise<void>>());
+  const ackAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (!enabled || !userId) return;
+    const controller = new AbortController();
+    const ackTasks = ackTasksRef.current;
+    ackAbortRef.current = controller;
+    return () => {
+      controller.abort();
+      if (ackAbortRef.current === controller) ackAbortRef.current = null;
+      ackTasks.clear();
+      ackTasksRef.current = new Map();
+    };
+  }, [enabled, userId]);
 
   useEffect(() => {
     if (!enabled || !userId) {
@@ -94,6 +109,7 @@ export function NotificationProvider({
     }
 
     const abortController = new AbortController();
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
     void (async () => {
       // Yield once so all effect-driven state changes originate from an async
@@ -126,7 +142,12 @@ export function NotificationProvider({
         setWatermark((current) => Math.max(current, response.watermark));
         setNextBeforeSequence(response.nextBeforeSequence);
       } catch {
-        if (!abortController.signal.aborted) setLoadError(true);
+        if (!abortController.signal.aborted) {
+          setLoadError(true);
+          retryTimer = setTimeout(() => {
+            setReloadVersion((current) => current + 1);
+          }, RETRY_DELAY_MS);
+        }
       } finally {
         if (!abortController.signal.aborted) {
           historyRequestActiveRef.current = false;
@@ -137,54 +158,31 @@ export function NotificationProvider({
 
     return () => {
       abortController.abort();
+      if (retryTimer) clearTimeout(retryTimer);
       historyRequestActiveRef.current = false;
     };
   }, [enabled, userId, reloadVersion]);
 
   const queueAcknowledgement = useCallback((notification: NotificationItem) => {
-    if (!userId) return;
-    ackChainRef.current = ackChainRef.current
-      .catch(() => undefined)
-      .then(async () => {
-        await acknowledgeNotification(notification.notificationId);
-        persistAcknowledgedCursor(userId, notification.sequenceNumber);
-      })
-      .catch(() => undefined);
+    if (!userId || ackTasksRef.current.has(notification.notificationId)) return;
+    const signal = ackAbortRef.current?.signal;
+    if (!signal) return;
+    const tasks = ackTasksRef.current;
+    const task = retryNotificationAcknowledgement(
+      notification.notificationId,
+      acknowledgeNotification,
+      signal,
+    ).then(() => undefined).finally(() => { tasks.delete(notification.notificationId); });
+    tasks.set(notification.notificationId, task);
   }, [userId]);
 
   useEffect(() => {
     if (!enabled || !userId) return;
 
-    const cursor = readStoredCursor(userId);
-    const streamUrl = new URL("/api/notifications/stream", window.location.origin);
-    if (cursor > 0) streamUrl.searchParams.set("afterSequence", String(cursor));
-
-    const eventSource = new EventSource(streamUrl.toString());
+    let eventSource: EventSource | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
-    queueMicrotask(() => {
-      if (!disposed) setRealtimeStatus("connecting");
-    });
-
-    eventSource.onopen = () => {
-      if (disposed) return;
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-      setRealtimeStatus("connected");
-    };
-
-    eventSource.onerror = () => {
-      if (disposed || reconnectTimer) return;
-      reconnectTimer = setTimeout(() => {
-        if (!disposed) setRealtimeStatus("reconnecting");
-      }, 5_000);
-    };
-
-    eventSource.addEventListener("server-error", () => {
-      if (!disposed) setRealtimeStatus("reconnecting");
-    });
-
-    eventSource.addEventListener("notification", (event) => {
+    const onNotification = (event: Event) => {
       let parsed: unknown;
       try {
         parsed = JSON.parse((event as MessageEvent<string>).data);
@@ -216,22 +214,21 @@ export function NotificationProvider({
           notification.notificationId,
         );
 
-      if (!isKnown) {
-        knownNotificationIdsRef.current.add(notification.notificationId);
-        if (historyRequestActiveRef.current && !notification.readAtUtc) {
-          realtimeIdsDuringHistoryRef.current.add(notification.notificationId);
+        if (!isKnown) {
+          knownNotificationIdsRef.current.add(notification.notificationId);
+          if (historyRequestActiveRef.current && !notification.readAtUtc) {
+            realtimeIdsDuringHistoryRef.current.add(notification.notificationId);
+          }
+          setNotifications((current) => mergeNotifications(current, [notification]));
+          setWatermark((current) => Math.max(current, notification.sequenceNumber));
+          if (!notification.readAtUtc) {
+            setUnreadCount((current) => current + 1);
+          }
+          setToastQueue((current) => [...current, notification]);
         }
-        setNotifications((current) => mergeNotifications(current, [notification]));
-        setWatermark((current) => Math.max(current, notification.sequenceNumber));
-        if (!notification.readAtUtc) {
-          setUnreadCount((current) => current + 1);
-        }
-        setToastQueue((current) => [...current, notification]);
 
-      }
-
-        // ACK duplicates as well: the preceding ACK may have reached the browser
-        // but been lost before NotificationsMicroservice committed it.
+        // ACK duplicates as well: a previous ACK may have failed before
+        // NotificationsMicroservice committed it.
         queueAcknowledgement(notification);
         receiveSpan.setStatus({ code: SpanStatusCode.OK });
       } catch (error) {
@@ -240,12 +237,53 @@ export function NotificationProvider({
       } finally {
         receiveSpan.end();
       }
-    });
+    };
+
+    const connect = () => {
+      if (disposed) return;
+      const streamUrl = new URL("/api/notifications/stream", window.location.origin);
+
+      const source = new EventSource(streamUrl.toString());
+      eventSource = source;
+      queueMicrotask(() => {
+        if (!disposed && eventSource === source) setRealtimeStatus("connecting");
+      });
+
+      source.onopen = () => {
+        if (disposed || eventSource !== source) return;
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+        setRealtimeStatus("connected");
+      };
+
+      source.onerror = () => {
+        if (disposed || eventSource !== source) return;
+        setRealtimeStatus("reconnecting");
+        // EventSource retries dropped streams itself, but a rejected HTTP
+        // response (such as a temporary 503) can leave it permanently closed.
+        if (source.readyState !== EventSource.CLOSED || reconnectTimer) return;
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null;
+          if (disposed || eventSource !== source) return;
+          source.close();
+          connect();
+        }, RETRY_DELAY_MS);
+      };
+
+      source.addEventListener("server-error", () => {
+        if (!disposed && eventSource === source) setRealtimeStatus("reconnecting");
+      });
+      source.addEventListener("notification", (event) => {
+        if (!disposed && eventSource === source) onNotification(event);
+      });
+    };
+
+    connect();
 
     return () => {
       disposed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      eventSource.close();
+      eventSource?.close();
       setRealtimeStatus("disconnected");
     };
   }, [enabled, userId, queueAcknowledgement]);

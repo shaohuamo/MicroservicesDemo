@@ -11,6 +11,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/auth", () => ({ auth: mocks.auth }));
+vi.mock("@/lib/auth/gateway-session-proof", () => ({
+  getRefreshTokenRecordId: vi.fn(async () => "11111111-1111-1111-1111-111111111111"),
+}));
 vi.mock("@/lib/notifications/server-hub", () => ({
   registerNotificationConnection: mocks.registerConnection,
 }));
@@ -55,11 +58,14 @@ describe("notification stream tracing", () => {
     mocks.registerConnection.mockResolvedValue({
       close: vi.fn(async () => undefined),
       refreshPresence: vi.fn(async () => undefined),
+      isRealtimeAvailable: () => true,
+      waitForRealtimeReady: vi.fn(async () => true),
+      getDisconnectGeneration: () => 0,
       activateLiveDelivery: () => [],
     });
     mocks.fetchReplayPage.mockImplementation(async () => {
       activeSpans.push(trace.getActiveSpan()?.spanContext().spanId ?? "");
-      return { items: [], nextAfterSequence: null, watermark: 0 };
+      return { items: [], nextCursor: null, watermark: 0 };
     });
 
     const parent = trace.getTracer("notifications-stream-tracing.test").startSpan("next-route");

@@ -29,6 +29,9 @@ export default async function RootLayout({
   const session = await getRenderSession();
   const locale = await getRequestLocale();
   const userId = session?.userId ?? null;
+  const notificationsEnabled = Boolean(
+    userId && (!session?.error || session.error === "RefreshUnavailable"),
+  );
 
   return (
     <html
@@ -40,17 +43,21 @@ export default async function RootLayout({
           <QueryProvider>
             <NotificationProvider
               key={userId ? `user:${userId}` : "anonymous"}
-              enabled={Boolean(session && !session.error && userId)}
+              enabled={notificationsEnabled}
               userId={userId}
             >
-              <SessionExpiredRedirect hasSessionError={Boolean(session?.error)} />
+              <SessionExpiredRedirect hasSessionError={
+                session?.error === "RefreshTokenMissing"
+                || session?.error === "RefreshAccessTokenError"
+                || session?.error === "RefreshTokenStoreError"
+              } />
               <div className="app-shell relative min-h-screen lg:flex">
                 <Sidebar />
                 <main className="relative z-10 flex-1 overflow-auto bg-[var(--bg-elevated)]">
                   <div className="mx-auto flex min-h-screen w-full max-w-[1440px] flex-col px-4 pb-10 pt-6 sm:px-6 lg:px-10 lg:pb-14 lg:pt-8">
                     <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
                       <LanguageSelect />
-                      {session && !session.error && <NotificationBell />}
+                      {notificationsEnabled && <NotificationBell />}
                       <UserMenu userName={session?.user?.name ?? undefined} />
                     </div>
                     {children}

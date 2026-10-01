@@ -1,7 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { AxiosError, AxiosHeaders, type InternalAxiosRequestConfig } from "axios";
 import {
   CircuitBreaker,
+  api,
   getApiErrorMessage,
   isRetryableError,
   computeRetryDelay,
@@ -123,6 +124,30 @@ describe("isRetryableError", () => {
   });
 });
 
+describe("expired browser session", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("starts a new sign-in after the BFF returns 401", async () => {
+    const replace = vi.fn();
+    vi.stubGlobal("window", { location: { replace } });
+
+    await expect(api.get("/products", {
+      adapter: async (config) => {
+        throw new AxiosError("Unauthorized", undefined, config, null, {
+          status: 401,
+          statusText: "Unauthorized",
+          data: null,
+          headers: new AxiosHeaders(),
+          config,
+        });
+      },
+    })).rejects.toMatchObject({ response: { status: 401 } });
+
+    expect(replace).toHaveBeenCalledOnce();
+    expect(replace).toHaveBeenCalledWith("/logout");
+  });
+});
+
 describe("getApiErrorMessage", () => {
   it("returns the detail from a ProblemDetails response", () => {
     const error = makeAxiosError(409, undefined, {
@@ -170,5 +195,25 @@ describe("development HTTP logging", () => {
     });
 
     expect(getRequestHeadersForLog(headers)["idempotency-key"]).toBe("[REDACTED]");
+  });
+
+  it("redacts credentials and omits internal proof headers", () => {
+    const headers = new Headers({
+      authorization: "Bearer access-token",
+      cookie: "authjs.session-token=encrypted",
+      "x-admin-session-id": "11111111-1111-1111-1111-111111111111",
+      "x-admin-proof-iat": "1234567890",
+      "x-admin-proof-kid": "v1",
+      "x-admin-proof-sig": "signature",
+    });
+    const logged = getRequestHeadersForLog(headers, [
+      "x-admin-session-id", "x-admin-proof-iat", "x-admin-proof-kid", "x-admin-proof-sig",
+    ]);
+    expect(logged.authorization).toBe("[REDACTED]");
+    expect(logged.cookie).toBe("[REDACTED]");
+    expect(logged["x-admin-session-id"]).toBeUndefined();
+    expect(logged["x-admin-proof-iat"]).toBeUndefined();
+    expect(logged["x-admin-proof-kid"]).toBeUndefined();
+    expect(logged["x-admin-proof-sig"]).toBeUndefined();
   });
 });

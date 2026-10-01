@@ -97,6 +97,8 @@ spec:
           value: "5000"
         - name: Redis__SyncTimeout
           value: "5000"
+        - name: Redis__AsyncTimeout
+          value: "2000"
         - name: Redis__MaxReconnectDelay
           value: "5000"
         - name: Redis__InitialReconnectDelay

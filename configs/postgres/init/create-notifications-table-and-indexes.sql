@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS public."Notifications"
     "Version" bigint NOT NULL DEFAULT 0,
     "CreatedAtUtc" timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "DeliveredAtUtc" timestamp with time zone NULL,
+    "InAppAcknowledgedAtUtc" timestamp with time zone NULL,
     "ReadAtUtc" timestamp with time zone NULL,
     "EmailProviderMessageId" character varying(200) NULL,
     CONSTRAINT "Notifications_pkey" PRIMARY KEY ("NotificationId"),
@@ -53,6 +54,6 @@ CREATE INDEX IF NOT EXISTS "IX_Notifications_Unread"
     ON public."Notifications" ("UserId", "SequenceNumber" DESC)
     WHERE "ReadAtUtc" IS NULL;
 
-ALTER TABLE IF EXISTS public."Notifications"
-    ADD COLUMN IF NOT EXISTS "TraceParent" character varying(512),
-    ADD COLUMN IF NOT EXISTS "TraceState" character varying(512);
+CREATE INDEX IF NOT EXISTS "IX_Notifications_Unacknowledged_OperationTime"
+    ON public."Notifications" ("UserId", "OccurredAtUtc" DESC, "SequenceNumber" DESC)
+    WHERE "InAppAcknowledgedAtUtc" IS NULL;

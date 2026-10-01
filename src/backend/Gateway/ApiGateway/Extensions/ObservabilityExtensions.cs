@@ -31,6 +31,8 @@ public static class ObservabilityExtensions
                 .AddHttpClientInstrumentation()
                 .AddOtlpExporter())
             .WithMetrics(meterBuilder => meterBuilder
+                .AddMeter("ApiGateway.Authentication")
+                .AddMeter("ApiGateway.Redis")
                 .AddProcessInstrumentation()
                 .AddRuntimeInstrumentation()
                 .AddAspNetCoreInstrumentation()

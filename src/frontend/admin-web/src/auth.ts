@@ -84,13 +84,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth((request) => ({
       const tokensToDenylist = new Set([accessToken, cachedAccessToken].filter(
         (value): value is string => typeof value === "string",
       ));
-      const operations = await Promise.allSettled([
-        ...[...tokensToDenylist].map(denylistAccessToken),
-        refreshTokenRecordId ? deleteRefreshTokenRecord(refreshTokenRecordId) : Promise.resolve(),
-      ]);
-      if (revokeError) throw revokeError;
-      const failed = operations.find((operation) => operation.status === "rejected");
-      if (failed?.status === "rejected") throw failed.reason;
+      const operations = await Promise.allSettled(
+        [...tokensToDenylist].map(denylistAccessToken),
+      );
+      // Session deletion is authoritative during a Redis outage. Never report
+      // successful logout when PostgreSQL could not revoke the session.
+      if (refreshTokenRecordId) await deleteRefreshTokenRecord(refreshTokenRecordId);
+      if (revokeError || operations.some((operation) => operation.status === "rejected")) {
+        console.warn("Logout completed with unavailable Redis revocation; the session record was deleted.");
+      }
     },
   },
   callbacks: {
@@ -159,7 +161,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth((request) => ({
         token.accessTokenExpiresAt = Math.floor(Date.now() / 1000) + account.expires_in;
       }
 
-      token.error = undefined;
+      // Keep refresh failures on the JWT until a successful sign-in or refresh.
+      // A page render has no backend route to refresh against, but still needs
+      // to see a terminal failure so it can send the user through sign-in.
+      if (account) {
+        token.error = undefined;
+      }
 
       const path = request?.nextUrl.pathname;
       const needsBackendAccessToken = path?.startsWith("/api/")
@@ -204,6 +211,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth((request) => ({
         token.accessToken = result.accessToken;
         token.idToken = result.idToken ?? token.idToken;
         token.accessTokenExpiresAt = result.expiresAt;
+        token.error = undefined;
         return token;
       } catch {
         token.error = "RefreshUnavailable";

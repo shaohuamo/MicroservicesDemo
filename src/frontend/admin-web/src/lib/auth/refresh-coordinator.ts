@@ -11,6 +11,7 @@ import {
   decryptAuthValue,
   encryptAuthValue,
   getRefreshTokenRecord,
+  refreshTokenRecordExists,
   updateRefreshTokenRecord,
 } from "@/lib/auth/refresh-token-store";
 
@@ -46,6 +47,20 @@ const SIGNED_OUT_TTL_MS = 60_000;
 const LOCK_TTL_MS = 50_000;
 const REFRESH_TIMEOUT_MS = 45_000;
 const WAITER_TIMEOUT_MS = 8_000;
+
+class RedisRefreshCoordinationError extends Error {
+  constructor(readonly stage: string) {
+    super("Redis refresh coordination is unavailable.");
+  }
+}
+
+async function redisOperation<T>(stage: string, operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch {
+    throw new RedisRefreshCoordinationError(stage);
+  }
+}
 
 const PUBLISH_SCRIPT = `
 if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
@@ -90,9 +105,13 @@ async function getRedis(): Promise<RedisClient> {
     try {
       const client = await existing;
       if (client.isReady) return client;
-    } catch {
-      // Recreate the client after a failed connection attempt.
+    } catch (error) {
+      if (globalThis.adminWebRefreshRedis === existing) {
+        globalThis.adminWebRefreshRedis = undefined;
+      }
+      throw error;
     }
+    if (globalThis.adminWebRefreshRedis !== existing) return getRedis();
     globalThis.adminWebRefreshRedis = undefined;
   }
 
@@ -101,7 +120,8 @@ async function getRedis(): Promise<RedisClient> {
     client.on("error", () => {
       // Command failures are reported to the caller.
     });
-    await traceAuthDependency("redis", "CONNECT", undefined, () => client.connect());
+    await traceAuthDependency("redis", "CONNECT", undefined, () =>
+      redisOperation("connect", () => client.connect()));
     return client;
   })();
   globalThis.adminWebRefreshRedis = connecting;
@@ -109,7 +129,9 @@ async function getRedis(): Promise<RedisClient> {
   try {
     return await connecting;
   } catch (error) {
-    globalThis.adminWebRefreshRedis = undefined;
+    if (globalThis.adminWebRefreshRedis === connecting) {
+      globalThis.adminWebRefreshRedis = undefined;
+    }
     throw error;
   }
 }
@@ -160,8 +182,13 @@ function decodeResult(raw: string | null): RefreshResult | null {
   throw new Error("Invalid refresh result in Redis.");
 }
 
-async function readResult(redis: RedisClient, recordId: string, traced = true) {
-  const get = () => redis.get(resultKey(recordId));
+async function readResult(
+  redis: RedisClient,
+  recordId: string,
+  traced = true,
+  stage = "result_read",
+) {
+  const get = () => redisOperation(stage, () => redis.get(resultKey(recordId)));
   const raw = traced
     ? await traceAuthDependency("redis", "GET", "refresh.result", get)
     : await get();
@@ -169,10 +196,11 @@ async function readResult(redis: RedisClient, recordId: string, traced = true) {
 }
 
 async function tryAcquireLock(redis: RedisClient, recordId: string, owner: string, traced = true) {
-  const set = () => redis.set(lockKey(recordId), owner, {
-    NX: true,
-    PX: LOCK_TTL_MS,
-  });
+  const set = () => redisOperation(traced ? "lock_acquire" : "lock_wait", () =>
+    redis.set(lockKey(recordId), owner, {
+      NX: true,
+      PX: LOCK_TTL_MS,
+    }));
   return traced
     ? traceAuthDependency("redis", "SET", "refresh.lock", set)
     : set();
@@ -202,43 +230,53 @@ async function publishResult(
         })),
       })
     : JSON.stringify(result);
-  const published = await traceAuthDependency("redis", "EVAL", "refresh.publish", () => redis.eval(PUBLISH_SCRIPT, {
-    keys: [lockKey(recordId), resultKey(recordId)],
-    arguments: [owner, value, String(ttlMs)],
-  }));
+  const published = await traceAuthDependency("redis", "EVAL", "refresh.publish", () =>
+    redisOperation("result_publish", () => redis.eval(PUBLISH_SCRIPT, {
+      keys: [lockKey(recordId), resultKey(recordId)],
+      arguments: [owner, value, String(ttlMs)],
+    })));
   return Number(published);
 }
 
-async function refreshUnderLock(redis: RedisClient, recordId: string, owner: string): Promise<RefreshResult> {
-  try {
-    // Another request may have published the result between our first read and SET NX.
-    const existing = await readResult(redis, recordId);
-    if (existing) return existing;
+async function refreshOnce(recordId: string): Promise<{ result: RefreshResult; ttlMs: number }> {
+  return getAuthTracer().startActiveSpan(
+    "auth.refresh.attempt",
+    { kind: SpanKind.INTERNAL },
+    async (span) => {
+      let result: RefreshResult;
+      let ttlMs = FAILURE_TTL_MS;
+      try {
+        const record = await getRefreshTokenRecord(recordId);
+        if (!record) {
+          result = failure("RefreshTokenMissing");
+        } else {
+          const refreshed = await refreshIdentityServerAccessToken(
+            record.refresh_token,
+            AbortSignal.timeout(REFRESH_TIMEOUT_MS),
+          );
+          if (!refreshed.access_token || !Number.isFinite(refreshed.expires_in)
+            || !refreshed.expires_in || refreshed.expires_in <= 0) {
+            throw new Error("Token refresh did not return a usable access token and lifetime.");
+          }
 
-    let result: RefreshResult;
-    let ttlMs = FAILURE_TTL_MS;
-    try {
-      const record = await getRefreshTokenRecord(recordId);
-      if (!record) {
-        result = failure("RefreshTokenMissing");
-      } else {
-        const refreshed = await refreshIdentityServerAccessToken(
-          record.refresh_token,
-          AbortSignal.timeout(REFRESH_TIMEOUT_MS),
-        );
-        if (!refreshed.access_token || !Number.isFinite(refreshed.expires_in)
-          || !refreshed.expires_in || refreshed.expires_in <= 0) {
-          throw new Error("Token refresh did not return a usable access token and lifetime.");
-        }
+          const expiresAt = Math.floor(Date.now() / 1_000) + refreshed.expires_in;
+          const ttlSeconds = getRefreshResultTtlSeconds(expiresAt);
+          if (ttlSeconds <= 0) {
+            throw new Error("Refreshed access token is already inside the refresh window.");
+          }
 
-        const expiresAt = Math.floor(Date.now() / 1_000) + refreshed.expires_in;
-        const ttlSeconds = getRefreshResultTtlSeconds(expiresAt);
-        if (ttlSeconds <= 0) {
-          throw new Error("Refreshed access token is already inside the refresh window.");
-        }
-
-        if (refreshed.refresh_token) {
-          if (!await updateRefreshTokenRecord(recordId, refreshed.refresh_token)) {
+          if (refreshed.refresh_token) {
+            if (!await updateRefreshTokenRecord(recordId, refreshed.refresh_token)) {
+              result = failure("RefreshTokenMissing");
+            } else {
+              result = {
+                status: "success",
+                accessToken: refreshed.access_token,
+                idToken: refreshed.id_token,
+                expiresAt,
+              };
+            }
+          } else if (!await refreshTokenRecordExists(recordId)) {
             result = failure("RefreshTokenMissing");
           } else {
             result = {
@@ -248,39 +286,94 @@ async function refreshUnderLock(redis: RedisClient, recordId: string, owner: str
               expiresAt,
             };
           }
-        } else if (!await getRefreshTokenRecord(recordId)) {
-          result = failure("RefreshTokenMissing");
-        } else {
-          result = {
-            status: "success",
-            accessToken: refreshed.access_token,
-            idToken: refreshed.id_token,
-            expiresAt,
-          };
-        }
 
-        if (result.status === "success") {
-          ttlMs = getRefreshResultTtlSeconds(expiresAt) * 1_000;
-          if (ttlMs <= 0) {
-            result = failure("RefreshAccessTokenError");
-            ttlMs = FAILURE_TTL_MS;
+          if (result.status === "success") {
+            ttlMs = getRefreshResultTtlSeconds(expiresAt) * 1_000;
+            if (ttlMs <= 0) {
+              result = failure("RefreshAccessTokenError");
+              ttlMs = FAILURE_TTL_MS;
+            }
           }
         }
+      } catch (error) {
+        result = failure(
+          error instanceof IdentityServerTokenRefreshError && error.requiresSignIn
+            ? "RefreshAccessTokenError"
+            : "RefreshUnavailable",
+        );
       }
+
+      span.setAttribute("auth.refresh.outcome",
+        result.status === "success" ? "success" : result.error);
+      span.setStatus({ code: result.status === "success" ? SpanStatusCode.OK : SpanStatusCode.ERROR });
+      span.end();
+      return { result, ttlMs };
+    },
+  );
+}
+
+async function refreshWithoutRedis(
+  recordId: string,
+  stage: string,
+  completed?: RefreshResult,
+): Promise<RefreshResult> {
+  return getAuthTracer().startActiveSpan(
+    "auth.refresh.redis_fallback",
+    { kind: SpanKind.INTERNAL, attributes: { "auth.refresh.redis_failure_stage": stage } },
+    async (span) => {
+      try {
+        let result = completed ?? (await refreshOnce(recordId)).result;
+        if (result.status === "success") {
+          try {
+            if (!await refreshTokenRecordExists(recordId)) {
+              result = failure("RefreshTokenMissing");
+            }
+          } catch {
+            result = failure("RefreshUnavailable");
+          }
+        }
+        span.setAttribute("auth.refresh.fallback.outcome",
+          result.status === "success" ? "success" : result.error);
+        return result;
+      } finally {
+        span.end();
+      }
+    },
+  );
+}
+
+async function refreshUnderLock(redis: RedisClient, recordId: string, owner: string): Promise<RefreshResult> {
+  try {
+    // Another request may have published the result between our first read and SET NX.
+    const existing = await readResult(redis, recordId, true, "locked_result_read");
+    if (existing) return existing;
+
+    const { result, ttlMs } = await refreshOnce(recordId);
+
+    let published: number;
+    try {
+      published = await publishResult(redis, recordId, owner, result, ttlMs);
     } catch (error) {
-      result = failure(
-        error instanceof IdentityServerTokenRefreshError && error.requiresSignIn
-          ? "RefreshAccessTokenError"
-          : "RefreshUnavailable",
-      );
+      if (error instanceof RedisRefreshCoordinationError) {
+        // The token exchange may already have succeeded. Never repeat it.
+        return refreshWithoutRedis(recordId, error.stage, result);
+      }
+      throw error;
     }
 
-    const published = await publishResult(redis, recordId, owner, result, ttlMs);
     if (published === -1) return failure("RefreshTokenMissing");
     if (published !== 1) {
       // Sign-out revokes the lease, while an expired lease may have been taken
       // over by another request. Return the state that actually won.
-      return await readResult(redis, recordId) ?? failure("RefreshUnavailable");
+      try {
+        return await readResult(redis, recordId, true, "winner_result_read")
+          ?? failure("RefreshUnavailable");
+      } catch (error) {
+        if (error instanceof RedisRefreshCoordinationError) {
+          return refreshWithoutRedis(recordId, error.stage, result);
+        }
+        throw error;
+      }
     }
     return result;
   } finally {
@@ -313,7 +406,7 @@ async function waitForRefreshResult(redis: RedisClient, recordId: string, deadli
 
           await new Promise((resolve) => setTimeout(resolve, Math.min(200, remainingMs)));
           // Repeated polls are represented by this one span and its counters.
-          const existing = await readResult(redis, recordId, false);
+          const existing = await readResult(redis, recordId, false, "wait_result_read");
           polls++;
           if (existing) {
             outcome = existing.status === "success" ? "success" : "failure";
@@ -343,20 +436,27 @@ async function waitForRefreshResult(redis: RedisClient, recordId: string, deadli
 }
 
 export async function getOrRefreshAccessToken(recordId: string): Promise<RefreshResult> {
-  const redis = await getRedis();
-  const deadline = Date.now() + WAITER_TIMEOUT_MS;
-  const existing = await readResult(redis, recordId);
-  if (existing) return existing;
+  try {
+    const redis = await getRedis();
+    const deadline = Date.now() + WAITER_TIMEOUT_MS;
+    const existing = await readResult(redis, recordId);
+    if (existing) return existing;
 
-  const owner = randomUUID();
-  if (await tryAcquireLock(redis, recordId, owner) === "OK") {
-    return refreshUnderLock(redis, recordId, owner);
+    const owner = randomUUID();
+    if (await tryAcquireLock(redis, recordId, owner) === "OK") {
+      return await refreshUnderLock(redis, recordId, owner);
+    }
+
+    const waited = await waitForRefreshResult(redis, recordId, deadline);
+    return "result" in waited
+      ? waited.result
+      : await refreshUnderLock(redis, recordId, waited.owner);
+  } catch (error) {
+    if (error instanceof RedisRefreshCoordinationError) {
+      return refreshWithoutRedis(recordId, error.stage);
+    }
+    throw error;
   }
-
-  const waited = await waitForRefreshResult(redis, recordId, deadline);
-  return "result" in waited
-    ? waited.result
-    : refreshUnderLock(redis, recordId, waited.owner);
 }
 
 export async function revokeRefreshSession(recordId: string) {

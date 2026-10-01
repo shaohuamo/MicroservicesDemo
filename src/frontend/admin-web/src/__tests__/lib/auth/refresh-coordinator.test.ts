@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => {
   const entries = new Map<string, { value: string; expiresAt: number }>();
   const refresh = vi.fn();
   const getRecord = vi.fn();
+  const recordExists = vi.fn();
   const updateRecord = vi.fn();
   const tracedCommands: string[] = [];
   const waitSpans: Array<{ name: string; attributes: Record<string, string | number>; ended: boolean }> = [];
@@ -89,7 +90,7 @@ const mocks = vi.hoisted(() => {
       return 0;
     }),
   };
-  return { entries, refresh, getRecord, updateRecord, tracedCommands, waitSpans, traceDependency, startActiveSpan, client };
+  return { entries, refresh, getRecord, recordExists, updateRecord, tracedCommands, waitSpans, traceDependency, startActiveSpan, client };
 });
 
 vi.mock("redis", () => ({ createClient: () => mocks.client }));
@@ -109,6 +110,7 @@ vi.mock("@/lib/auth/identity-server-client", () => ({
 }));
 vi.mock("@/lib/auth/refresh-token-store", () => ({
   getRefreshTokenRecord: mocks.getRecord,
+  refreshTokenRecordExists: mocks.recordExists,
   updateRefreshTokenRecord: mocks.updateRecord,
   encryptAuthValue: (value: string) => `encrypted:${value}`,
   decryptAuthValue: (value: string) => value.slice("encrypted:".length),
@@ -127,7 +129,9 @@ beforeEach(() => {
   mocks.entries.clear();
   mocks.refresh.mockReset();
   mocks.getRecord.mockReset().mockResolvedValue({ id: "session-1", refresh_token: "refresh-token" });
+  mocks.recordExists.mockReset().mockResolvedValue(true);
   mocks.updateRecord.mockReset().mockResolvedValue(true);
+  mocks.client.connect.mockReset().mockResolvedValue(undefined);
   mocks.client.get.mockClear();
   mocks.client.set.mockClear();
   mocks.client.eval.mockClear();
@@ -240,9 +244,183 @@ describe("refresh coordination", () => {
     });
   });
 
-  it("does not call IdentityServer when Redis is unavailable", async () => {
+  it("identifies a missing refresh session before calling IdentityServer", async () => {
+    mocks.getRecord.mockResolvedValueOnce(null);
+
+    await expect(getOrRefreshAccessToken("session-1")).resolves.toEqual({
+      status: "failure",
+      error: "RefreshTokenMissing",
+    });
+    expect(mocks.refresh).not.toHaveBeenCalled();
+    expect(mocks.waitSpans.find((span) => span.name === "auth.refresh.attempt")?.attributes)
+      .toMatchObject({ "auth.refresh.outcome": "RefreshTokenMissing" });
+  });
+
+  it("refreshes directly when the initial Redis read fails", async () => {
     mocks.client.get.mockRejectedValueOnce(new Error("Redis unavailable"));
-    await expect(getOrRefreshAccessToken("session-1")).rejects.toThrow("Redis unavailable");
+    mocks.refresh.mockResolvedValue({ access_token: "new-access-token", expires_in: 900 });
+
+    await expect(getOrRefreshAccessToken("session-1")).resolves.toMatchObject({
+      status: "success",
+      accessToken: "new-access-token",
+    });
+    expect(mocks.refresh).toHaveBeenCalledTimes(1);
+    expect(mocks.recordExists).toHaveBeenCalledWith("session-1");
+    expect(mocks.client.set).not.toHaveBeenCalled();
+    expect(mocks.entries.has(resultKey)).toBe(false);
+  });
+
+  it("retries Redis coordination after an initial connection failure", async () => {
+    mocks.client.connect.mockRejectedValueOnce(new Error("Redis unavailable"));
+    mocks.refresh.mockResolvedValue({ access_token: "new-access-token", expires_in: 900 });
+
+    const concurrent = await Promise.all(
+      Array.from({ length: 3 }, () => getOrRefreshAccessToken("session-1")),
+    );
+    expect(concurrent).toEqual(Array(3).fill(expect.objectContaining({ status: "success" })));
+    expect(mocks.client.connect).toHaveBeenCalledTimes(1);
+    expect(mocks.refresh).toHaveBeenCalledTimes(3);
+    expect(mocks.client.set).not.toHaveBeenCalled();
+
+    await expect(getOrRefreshAccessToken("session-1")).resolves.toMatchObject({ status: "success" });
+    expect(mocks.client.connect).toHaveBeenCalledTimes(2);
+    expect(mocks.client.set).toHaveBeenCalledTimes(1);
+    expect(mocks.entries.has(resultKey)).toBe(true);
+  });
+
+  it("refreshes directly when acquiring the Redis lock fails", async () => {
+    mocks.client.set.mockRejectedValueOnce(new Error("Redis unavailable"));
+    mocks.refresh.mockResolvedValue({ access_token: "new-access-token", expires_in: 900 });
+
+    await expect(getOrRefreshAccessToken("session-1")).resolves.toMatchObject({ status: "success" });
+    expect(mocks.refresh).toHaveBeenCalledTimes(1);
+    expect(mocks.entries.has(resultKey)).toBe(false);
+  });
+
+  it("refreshes directly when the locked result check fails", async () => {
+    mocks.client.get.mockResolvedValueOnce(null).mockRejectedValueOnce(new Error("Redis unavailable"));
+    mocks.refresh.mockResolvedValue({ access_token: "new-access-token", expires_in: 900 });
+
+    await expect(getOrRefreshAccessToken("session-1")).resolves.toMatchObject({ status: "success" });
+    expect(mocks.refresh).toHaveBeenCalledTimes(1);
+    expect(mocks.entries.has(resultKey)).toBe(false);
+  });
+
+  it("refreshes directly when Redis fails while waiting for another refresh", async () => {
+    mocks.client.set.mockResolvedValueOnce(null);
+    mocks.client.get.mockResolvedValueOnce(null).mockRejectedValueOnce(new Error("Redis unavailable"));
+    mocks.refresh.mockResolvedValue({ access_token: "new-access-token", expires_in: 900 });
+
+    await expect(getOrRefreshAccessToken("session-1")).resolves.toMatchObject({ status: "success" });
+    expect(mocks.refresh).toHaveBeenCalledTimes(1);
+    expect(mocks.waitSpans[0]?.attributes["auth.refresh.wait.outcome"]).toBe("error");
+  });
+
+  it("refreshes directly when retrying the lock fails during the wait", async () => {
+    mocks.client.set.mockResolvedValueOnce(null).mockRejectedValueOnce(new Error("Redis unavailable"));
+    mocks.refresh.mockResolvedValue({ access_token: "new-access-token", expires_in: 900 });
+
+    await expect(getOrRefreshAccessToken("session-1")).resolves.toMatchObject({ status: "success" });
+    expect(mocks.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows concurrent refreshes while Redis is unavailable", async () => {
+    for (let index = 0; index < 3; index++) {
+      mocks.client.get.mockRejectedValueOnce(new Error("Redis unavailable"));
+    }
+    mocks.refresh.mockResolvedValue({ access_token: "new-access-token", expires_in: 900 });
+
+    const results = await Promise.all(
+      Array.from({ length: 3 }, () => getOrRefreshAccessToken("session-1")),
+    );
+    expect(results).toEqual(Array(3).fill(expect.objectContaining({ status: "success" })));
+    expect(mocks.refresh).toHaveBeenCalledTimes(3);
+    expect(mocks.client.set).not.toHaveBeenCalled();
+  });
+
+  it("returns an already refreshed token when publishing to Redis fails", async () => {
+    mocks.client.eval.mockRejectedValueOnce(new Error("Redis unavailable"));
+    mocks.refresh.mockResolvedValue({
+      access_token: "new-access-token",
+      expires_in: 900,
+      refresh_token: "new-refresh-token",
+    });
+
+    await expect(getOrRefreshAccessToken("session-1")).resolves.toMatchObject({
+      status: "success",
+      accessToken: "new-access-token",
+    });
+    expect(mocks.refresh).toHaveBeenCalledTimes(1);
+    expect(mocks.updateRecord).toHaveBeenCalledWith("session-1", "new-refresh-token");
+    expect(mocks.recordExists).toHaveBeenCalledWith("session-1");
+    expect(mocks.entries.has(resultKey)).toBe(false);
+  });
+
+  it("does not repeat the token exchange if Redis fails while reading a competing result", async () => {
+    mocks.client.get.mockResolvedValueOnce(null).mockResolvedValueOnce(null)
+      .mockRejectedValueOnce(new Error("Redis unavailable"));
+    mocks.client.eval.mockResolvedValueOnce(0);
+    mocks.refresh.mockResolvedValue({ access_token: "new-access-token", expires_in: 900 });
+
+    await expect(getOrRefreshAccessToken("session-1")).resolves.toMatchObject({
+      status: "success",
+      accessToken: "new-access-token",
+    });
+    expect(mocks.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not return a refreshed token after the session record was deleted", async () => {
+    mocks.client.eval.mockRejectedValueOnce(new Error("Redis unavailable"));
+    mocks.refresh.mockResolvedValue({
+      access_token: "new-access-token",
+      expires_in: 900,
+      refresh_token: "new-refresh-token",
+    });
+    mocks.recordExists.mockResolvedValueOnce(false);
+
+    await expect(getOrRefreshAccessToken("session-1")).resolves.toEqual({
+      status: "failure",
+      error: "RefreshTokenMissing",
+    });
+    expect(mocks.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not return a token when the final PostgreSQL check fails", async () => {
+    mocks.client.get.mockRejectedValueOnce(new Error("Redis unavailable"));
+    mocks.refresh.mockResolvedValue({
+      access_token: "new-access-token",
+      expires_in: 900,
+      refresh_token: "new-refresh-token",
+    });
+    mocks.recordExists.mockRejectedValueOnce(new Error("PostgreSQL unavailable"));
+
+    await expect(getOrRefreshAccessToken("session-1")).resolves.toEqual({
+      status: "failure",
+      error: "RefreshUnavailable",
+    });
+    expect(mocks.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps PostgreSQL and IdentityServer errors distinct from Redis failures", async () => {
+    mocks.client.get.mockRejectedValueOnce(new Error("Redis unavailable"));
+    mocks.getRecord.mockRejectedValueOnce(new Error("PostgreSQL unavailable"));
+    await expect(getOrRefreshAccessToken("session-1")).resolves.toEqual({
+      status: "failure",
+      error: "RefreshUnavailable",
+    });
+    expect(mocks.refresh).not.toHaveBeenCalled();
+
+    mocks.client.get.mockRejectedValueOnce(new Error("Redis unavailable"));
+    mocks.refresh.mockRejectedValueOnce(new IdentityServerTokenRefreshError("invalid_grant", true));
+    await expect(getOrRefreshAccessToken("session-1")).resolves.toEqual({
+      status: "failure",
+      error: "RefreshAccessTokenError",
+    });
+  });
+
+  it("does not bypass a malformed Redis result", async () => {
+    mocks.entries.set(resultKey, { value: "{invalid", expiresAt: Date.now() + 30_000 });
+    await expect(getOrRefreshAccessToken("session-1")).rejects.toThrow(SyntaxError);
     expect(mocks.refresh).not.toHaveBeenCalled();
   });
 

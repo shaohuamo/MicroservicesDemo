@@ -39,7 +39,7 @@ export type NotificationListResponse = {
 
 export type NotificationReplayResponse = {
   items: NotificationItem[];
-  nextAfterSequence: number | null;
+  nextCursor: string | null;
   watermark: number;
 };
 

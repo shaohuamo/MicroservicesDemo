@@ -2,7 +2,9 @@
 
 English | [简体中文](README.md)
 
-**MicroservicesDemo** is a .NET 9 microservices showcase project demonstrating API gateway routing, service discovery, event-driven messaging, distributed caching, observability, and Clean Architecture. It supports local execution with Docker Compose and also provides a live demonstration environment deployed on AKS.
+**MicroservicesDemo** is a .NET 9 microservices showcase project demonstrating API gateway routing, service discovery, event-driven messaging, distributed caching, observability, and Clean Architecture.
+
+It runs locally with Docker Compose and also has a live demonstration environment on AKS.
 
 ## 🌐 Live Demo
 
@@ -16,7 +18,9 @@ When managing products in Admin Web, note the following:
 - A notification is sent when an update, add, or delete operation succeeds.
 - An error message is displayed when an update, add, or delete operation fails, prompting the user to make corrections.
 
-> **Email verification:** After registration, the verification email typically takes 2–5 minutes to arrive. If it is not visible in your inbox, check the spam or promotions folder. Because the sending domain was registered recently, some email providers may temporarily classify these messages as spam.
+> **Email verification:** After registration, the verification email typically takes 2–5 minutes to arrive.
+>
+> If it is not in your inbox, check the spam or promotions folder. Because the sending domain was registered recently, some providers may temporarily classify these messages as spam.
 
 The online environment also exposes these observability endpoints:
 
@@ -103,7 +107,10 @@ The online environment also exposes these observability endpoints:
 [![Products Microservice Build Status](https://dev.azure.com/lambdazb/MicroservicesDemo/_apis/build/status%2FProductsMicroservice?branchName=dev&label=Products%20Microservice)](https://dev.azure.com/lambdazb/MicroservicesDemo/_build/latest?definitionId=1&branchName=dev)
 [![Infrastructure Build Status](https://dev.azure.com/lambdazb/MicroservicesDemo/_apis/build/status%2Finfrastructure?branchName=dev&label=Infrastructure)](https://dev.azure.com/lambdazb/MicroservicesDemo/_build/latest?definitionId=4&branchName=dev)
 
-The badges above dynamically show the latest `dev` branch run for each pipeline; select a badge to open the corresponding Azure Pipeline. Application pipelines build images, push them to ACR, and deploy to AKS. Platform pipelines manage infrastructure, ingress, and cluster add-ons.
+The badges above show the latest `dev` branch status for each pipeline. Select one to open its Azure Pipeline.
+
+- **Application pipelines:** Build images, push them to ACR, and deploy to AKS.
+- **Platform pipelines:** Manage infrastructure, ingress, and cluster add-ons.
 
 | Type | Pipeline definitions |
 | --- | --- |
@@ -171,14 +178,21 @@ The badges above dynamically show the latest `dev` branch run for each pipeline;
 
 ### 🔐 Authentication and Request Flow
 
-`Next.js UI` and the `BFF` are logical components in the same Admin Web deployment, not separate services. The BFF maintains the NextAuth session and tokens on the server, so the browser does not hold access tokens or call the API Gateway directly.
+`Next.js UI` and the `BFF` are logical components in the same Admin Web deployment, not separate services.
+
+The browser carries an encrypted NextAuth session cookie. The BFF reads the access token from it and proxies API requests, so browser code does not read the token or call the API Gateway directly.
 
 | Relationship | Description |
 | --- | --- |
 | `Next.js UI → BFF` | The browser calls a Next.js API Route over same-origin HTTPS |
-| `BFF → API Gateway` | The BFF reads the access token from its server-side session and proxies API requests with a Bearer token |
+| `BFF → API Gateway` | The BFF reads the access token from the session cookie's JWT payload and proxies API requests with a Bearer token |
 | `Admin Web / Browser ↔ IdentityServer` | When the user is unauthenticated, Admin Web initiates OIDC login and redirects the browser; the user completes registration, email confirmation, and sign-in in IdentityServer; the BFF handles the callback, token exchange, token refresh, and logout |
 | `API Gateway ⇢ IdentityServer` | The gateway retrieves and caches OIDC metadata/JWKS to validate JWT signature, issuer, audience, and lifetime locally |
+
+1. The sign-in callback exchanges the OIDC authorization code for an access token, ID token, and refresh token.
+2. The access and ID tokens are kept in the encrypted session cookie. The refresh token is encrypted in Admin Web's PostgreSQL database; the cookie holds only its record ID.
+3. After IdentityServer refreshes the tokens, the BFF updates the access token in the cookie and updates the PostgreSQL record if a new refresh token is returned.
+4. On sign-out, Admin Web attempts to add the access token to the Redis denylist and deletes the PostgreSQL refresh-token record.
 
 ## ⚖️ Design and Tradeoffs
 
@@ -186,8 +200,43 @@ The badges above dynamically show the latest `dev` branch run for each pipeline;
 
 - **Symptom:** Near access-token expiry, the Products list, Notifications list, and notification SSE replay requests may each call `/connect/token`.
 - **Cause:** These independent requests can carry the same stale session cookie before the browser receives an updated one, so each decides to refresh. The [Auth.js documentation](https://authjs.dev/guides/refresh-token-rotation) also describes this race.
-- **Current approach:** Refresh only before a backend API call needs the token and only when the cookie's access token enters its final 60 seconds. A Redis result key and lock, keyed by the login's refresh-token record ID, coordinate replicas. The lock holder checks the result again before calling IdentityServer. Successful results are encrypted and live for the lesser of 30 seconds or the time until the 60-second refresh window minus one second; failures live for 15 seconds. Waiters give up after eight seconds with a retryable 503. The refresh call has a 45-second timeout and the lock a 50-second lease. BFF responses update the session cookie. Sign-out revokes the lock and temporarily marks the session invalid so an in-flight refresh cannot publish a result afterward.
-- **Tradeoff:** Reducing duplicate IdentityServer calls means requests near expiry may wait for the refresh and depend on Redis. If Redis is unavailable, requests fail rather than refresh outside the lock. The 30-second result window covers closely spaced requests, but a lock or result may expire, disappear on restart, or be evicted early under the current `allkeys-lru` policy. Another refresh is then possible, so this does not guarantee unconditional exactly-once behavior. [Redis documents key eviction](https://redis.io/docs/latest/develop/reference/eviction/).
+- **Current approach:**
+  - **Trigger:** Refresh only before a backend API call needs the token and only when the cookie's access token enters its final 60 seconds.
+  - **Redis coordination:** A result key and lock, keyed by the login's refresh-token record ID, coordinate replicas. The lock holder checks the result again before calling IdentityServer.
+  - **Result cache:** Successful results are encrypted and live for the lesser of 30 seconds or the time until the 60-second refresh window minus one second; failures live for 15 seconds.
+  - **Timeouts:** With healthy Redis, waiters give up after eight seconds with a retryable 503. The refresh call has a 45-second timeout and the lock a 50-second lease.
+  - **Redis failure:** Each request reads the refresh token from PostgreSQL and refreshes independently without writing a Redis result. Before returning success, it checks that the database record has not been deleted.
+  - **Session update:** BFF responses update the session cookie. Normal sign-out revokes the Redis lock and temporarily marks the session invalid so an in-flight refresh cannot publish a result afterward.
+- **Tradeoff:**
+  - During a Redis outage, concurrent requests may each call IdentityServer, increasing its load. A Redis publish failure after a refresh does not trigger another IdentityServer call.
+  - Checking the database record cannot eliminate a sign-out race immediately after that check.
+  - The 30-second result window covers closely spaced requests while Redis is healthy, but a lock or result may expire, disappear on restart, or be evicted early under `allkeys-lru`. This does not guarantee unconditional exactly-once behavior. [Redis documents key eviction](https://redis.io/docs/latest/develop/reference/eviction/).
+
+### Access Token Revocation
+
+- **Symptom:** After sign-out, an unexpired access token may still pass JWT signature and lifetime validation. During a Redis outage or restart, the gateway may also be unable to read revocation records reliably.
+- **Cause:** A JWT does not carry server-side sign-out state, so the gateway checks a separate denylist. Redis [AOF `everysec` persistence](https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/) reduces restart data loss but cannot prevent [memory eviction](https://redis.io/docs/latest/develop/reference/eviction/).
+- **Current approach:**
+  - **Sign-out:** Admin Web attempts to add the access token to the Redis denylist shared with Products and deletes the PostgreSQL refresh-token record.
+  - **Healthy Redis:** The gateway validates the JWT, then checks the denylist; a hit is rejected and a miss is allowed.
+  - **Redis unavailable or recently recovered:** After a connection or command failure, and for 930 seconds after recovery, the gateway accepts only requests carrying a short-lived Admin Web server proof and checks whether `auth_refresh_tokens.id` exists.
+  - **Fallback result:** Direct gateway requests receive 401; a database outage returns 503. The query confirms only that the session was not explicitly signed out; it does not validate the IdentityServer refresh token.
+  - **Lifetime:** Access tokens live for 900 seconds, gateway clock skew is 30 seconds, and denylist keys remain until `exp + 30 seconds`; [IdentityModel defaults to 300 seconds of skew](https://learn.microsoft.com/en-us/dotnet/api/microsoft.identitymodel.tokens.tokenvalidationparameters.defaultclockskew).
+- **Tradeoff:**
+  - PostgreSQL queries add load during Redis failures, and direct gateway clients cannot use session fallback.
+  - Eviction of a denylist key while Redis is healthy does not trigger a database query, so an old token may pass for the rest of its lifetime.
+  - The same window exists if Admin Web cannot write to Redis while the gateway can still read it, or if the gateway misses a brief outage, even though sign-out deleted the database record.
+  - Covering this one-sided failure requires checking PostgreSQL even while Redis is healthy or adding durable revocation retries that the gateway can observe.
+
+### API Idempotency
+
+- **Problem:** A client may time out or lose the response after a product write commits. HTTP PUT/DELETE effect idempotence does not guarantee replay of the first result: an update retry with the original `Version` can return 409, and a delete retry can return 404.
+- **Cause:** HTTP method semantics do not guarantee that a retry receives the first successful response, so the API must record results and recognize duplicate requests.
+- **Current approach:**
+  - Add, Update, and Delete require an idempotency key. Retrying the same request replays its first successful result; reusing a key for a different request returns a conflict.
+  - PostgreSQL stores successful results and remains authoritative. Redis serves fast replays, with misses or failures falling back to the database. Product changes and idempotency records commit atomically to prevent a committed write from running twice after a lost response.
+  - Admin Web retains the key when the result is uncertain, and the BFF forwards the related request and response headers.
+- **Tradeoff:** Idempotency records are retained for a limited time, so deduplication is not guaranteed after cleanup. Redis misses or outages add database load, and Redis and PostgreSQL do not share a transaction. A replay returns the first successful response, which may not reflect the product's current state. Message delivery remains at least once.
 
 ## ⚙️ Technology Choices
 
@@ -212,7 +261,8 @@ The badges above dynamically show the latest `dev` branch run for each pipeline;
 **📐 Product Management (Products Service)**
 
 - Product CRUD endpoints exposed through the Ocelot Gateway
-- Add Product requires a canonical UUID v4 `Idempotency-Key`; PostgreSQL stores the final response under a unique `(UserId, Operation, IdempotencyKey)` constraint, so the same request retry returns the same successful response while a different payload returns a conflict error
+- Add, Update, and Delete require a canonical UUID v4 `Idempotency-Key`.
+  - Redis replays successful results first; a miss or outage falls back to PostgreSQL. A unique `(UserId, Operation, IdempotencyKey)` constraint protects persisted results; a different payload with the same key returns 409.
 - Product Add/Delete/Update operations are delivered asynchronously to the Notifications Service through the ProductOperations Outbox and RabbitMQ
 
 **🚀 Service Governance (Gateway + Consul / Kubernetes DNS)**
@@ -228,26 +278,39 @@ The badges above dynamically show the latest `dev` branch run for each pipeline;
 
 **🔐 Authentication (IdentityServer + Admin Web)**
 
-- Admin Web uses OIDC Authorization Code Flow with server-side sessions and token refresh
-- Registration, Resend email confirmation, and Redis-backed rate limiting are included. A unique `NormalizedEmail` index complements `RequireUniqueEmail` to enforce case-insensitive email uniqueness even when concurrent registrations bypass remote validation; Bearer tokens and the `products-api` scope are enforced
+- Admin Web uses OIDC Authorization Code Flow and refreshes tokens using an encrypted session cookie and a PostgreSQL refresh-token record
+- Registration, Resend email confirmation, and Redis-backed rate limiting are included.
+  - A unique `NormalizedEmail` index complements `RequireUniqueEmail` to enforce case-insensitive email uniqueness even when concurrent registrations bypass remote validation.
+  - Products routes require a valid Bearer token and the `products-api` scope.
 - The unique index is managed by an EF Migration and applied automatically by `Database.Migrate()` when IdentityServer starts; EF migration history ensures that it runs only once per database
 - Logout adds access tokens to a Redis denylist that the gateway can validate in fail-closed mode
 
 **📨 Messaging and Notifications Reliability**
 
-- **Atomic write**: Product Add/Delete/Update operations share one EF Core unit of work with `ProductOperationOutbox` and commit atomically in a single `SaveChanges` call.
+- **Atomic write**: Product Add/Delete/Update operations share one EF Core unit of work with `ProductOperationOutbox` and `IdempotencyRecord` and commit atomically in a single `SaveChanges` call.
 - **Reliable publishing**: The Outbox Dispatcher uses publisher confirms for `products.operation.completed`; a UUID v7 `NotificationId` is both the RabbitMQ `MessageId` and the end-to-end idempotency key.
-- **Idempotent consumption and takeover**: The Notifications Consumer persists messages idempotently by payload hash; Delivery Workers use PostgreSQL row leases to coordinate replicas, RabbitMQ DLQ handles messages that cannot be delivered, and Redis Pub/Sub remains a realtime router rather than durable storage.
+- **Idempotent consumption and takeover:** The Notifications Consumer persists messages idempotently by payload hash; Delivery Workers coordinate replicas with PostgreSQL row leases.
+  - RabbitMQ DLQ handles messages that cannot be delivered. Redis Pub/Sub routes live messages but does not provide durable storage.
 - **Online and offline delivery**
 
-  - **Delivery rules**: Online delivery waits for browser ACK, retries failures, and falls back to email; `SequenceNumber`, `Last-Event-ID`, and BFF Presence support ordering and reconnect replay, while offline users receive email through Resend.
+  - **Delivery rules**: Online delivery waits for browser ACK, retries failures, and falls back to email. In-app acknowledgement is tracked independently of email status. SSE setup replays every notification without an in-app ACK, newest operation first. BFF Presence routes live messages; `SequenceNumber` bounds pagination and breaks timestamp ties.
   - **Notification delivery workflow**:
 
-    1. Products Service commits the product operation and `ProductOperationOutbox` in one database transaction. The Outbox Dispatcher publishes the result to RabbitMQ. The Notifications Consumer validates the message, stores it idempotently in Notifications DB using `NotificationId` and the payload hash, then acknowledges the RabbitMQ message.
-    2. After the user signs in to Admin Web, the browser requests `/api/notifications/stream` through `EventSource`. On the first connection handled by a BFF process, the BFF opens a dedicated Redis subscriber connection and subscribes to `notifications:bff:{instanceId}`. Each BFF process shares one channel; its `instanceId` combines an instance name and a random UUID.
-    3. After subscription succeeds, the BFF creates a `connectionId` for the browser connection and adds `{instanceId}:{connectionId}` to the `notifications:presence:{userId}` sorted set. Its score is the presence expiry time, with a default 45-second TTL. The BFF then replays persisted notifications from Notifications API and buffers live messages received during replay. Once replay ends, it refreshes presence every 15 seconds and removes the member when the connection closes.
-    4. The Delivery Worker claims a due notification and removes expired presence members for that user. If an active member remains and SSE attempts are available, the worker extracts the BFF instance ID and publishes to its channel. The BFF routes the message to the user's local SSE connections. The browser calls the ACK endpoint, which moves the notification to `DeliveredInApp`.
-    5. When no active presence member exists, the worker moves directly to `SendingEmail`. If an SSE publication is not acknowledged within five seconds, it retries; by default, two SSE attempts are allowed before email delivery through Resend. Redis call failures follow the delivery retry policy. Pub/Sub does not retain messages, so a reconnecting browser uses `Last-Event-ID` or `afterSequence` to replay missed notifications from Notifications DB.
+    1. **Persist and publish:** Products Service commits the product operation and `ProductOperationOutbox` in one database transaction. The Outbox Dispatcher publishes the result to RabbitMQ.
+       - The Notifications Consumer validates the message, stores it idempotently in Notifications DB using `NotificationId` and the payload hash, then acknowledges the RabbitMQ message.
+    2. **Establish SSE:** After sign-in, the browser requests `/api/notifications/stream` through `EventSource`.
+       - The BFF registers the local SSE connection, then connects to Redis and subscribes to `notifications:bff:{instanceId}` asynchronously. Each process shares one channel; `instanceId` combines an instance name and a random UUID. A Redis outage neither closes existing SSE connections nor prevents new connections and database replay.
+    3. **Track presence and replay:** When Redis is available, the BFF adds `{instanceId}:{connectionId}` to the `notifications:presence:{userId}` sorted set. Its score is the expiry time, with a default 45-second TTL.
+       - Before the first replay, the BFF waits up to one second for its Redis subscription and this connection's presence to become ready. It then runs one complete replay of notifications without an in-app ACK, including notifications sending or delivered by email, ordered by `OccurredAtUtc DESC, SequenceNumber DESC`. Page cursors preserve the scan's sequence watermark. Live messages are buffered and deduplicated by `notificationId`; the browser's `Last-Event-ID` does not skip notifications. After replay, presence is refreshed every 15 seconds and removed on disconnect. Redis recovery restores subscriptions and presence.
+    4. **Deliver in real time:** The Delivery Worker claims a due notification and removes expired presence members. If an active member remains and the current claim is within the realtime delivery limit, it publishes to the corresponding BFF instance channel.
+       - The BFF routes the message to the user's local SSE connections. Idempotent browser ACK records `InAppAcknowledgedAtUtc`; retryable deliveries move to `DeliveredInApp`, while email states are preserved without invalidating an active email task's version or lease.
+    5. **Handle offline users and retries:** The worker allows at least 20 seconds from notification creation for an in-app ACK; an ACK persisted before email starts prevents the fallback email. Without active presence, or when Redis calls fail, it may move to `SendingEmail` through Resend after the window if no ACK has arrived.
+       - By default, only the first two worker claims for a notification can attempt a Redis publication to the BFF. Every claim counts, even when no presence exists or Redis fails, so the actual number of publications may be zero, one, or two. After a successful publication, the worker waits five seconds for ACK before the next claim. This limit is unrelated to the number of SSE connections and excludes the BFF's database fallback scans.
+       - When the BFF detects Redis is unavailable, it pages through unacknowledged notifications from Notifications API's `/replay` endpoint every five seconds using the connection's session identity, then forwards them over the existing SSE stream. After resubscribing and restoring presence, it completes a final scan. Fallback and initial replay share descending cursor pagination over all notifications without an in-app ACK. If readiness completes within one second and no disconnect occurs during replay, setup runs one initial scan; a scan may require multiple page requests, each returning up to 100 notifications. A readiness timeout still allows SSE to open, followed by recovery scans. Disconnects during replay or after setup also retain recovery scans. The browser deduplicates by `notificationId` and retries failed ACKs. If only the Notifications API publisher fails while the BFF's Redis connection stays healthy, replay waits for SSE reconnect.
+
+The notification list displays history, loading 20 items initially without automatically acknowledging them. SSE replay recovers deliveries without an in-app ACK, including after reconnect. The browser deduplicates overlapping notifications by `notificationId` and acknowledges duplicate SSE messages again.
+
+Notifications API `/replay` starts with `limit` only; subsequent requests pass the returned `nextCursor` as `cursor`, replacing `afterSequence` / `upToSequence`. Deploy Notifications API and Admin Web together. During development, the notification table, in-app ACK column, and indexes are created directly by the initialization SQL; service startup only checks database connectivity.
 
 **🔍 Observability Stack**
 
@@ -259,17 +322,33 @@ The badges above dynamically show the latest `dev` branch run for each pipeline;
 
 The Products Service caches product data in Redis, with separate keys for product details and the full list:
 
-- **Reads**: A by-ID cache miss loads the product from the database and fills the detail cache. Missing products use the `CacheOptions.NullValuePlaceholder` negative-cache entry. The full-list cache uses logical expiration and refreshes in the background after expiry.
-- **Successful writes**: Adding a product invalidates the list cache, while an idempotent replay does not invalidate it again. A successful update or delete immediately invalidates that product's detail cache and the full-list cache. Only a successful update repeats both deletions after `Redis:DelayedDeleteMs` (about two seconds by default).
+- **Reads:** A by-ID cache miss loads the product from the database and fills the detail cache. Missing products use the `CacheOptions.NullValuePlaceholder` negative-cache entry.
+  - The full-list cache uses logical expiration and refreshes in the background after expiry.
+- **Reads during Redis failures:** Disconnection or a failed cache operation sends detail and full-list reads directly to PostgreSQL without filling the cache.
+  - A full-list cold miss also falls back after a five-second distributed-lock timeout. A logically expired list can still be returned immediately; a failed background refresh is logged.
+- **Redis command timeouts:** Products explicitly sets `Redis:AsyncTimeout = 2000` milliseconds and keeps `SyncTimeout` at 5000 milliseconds. Once a disconnection is detected, `BacklogPolicy.FailFast` prevents new commands from waiting in the reconnect backlog. The async timeout also applies to Redis commands used by cache locks; lock contention and initial connection attempts have separate settings.
+- **Successful writes:** The first successful Add invalidates the list cache. The first successful Update or Delete immediately invalidates that product's detail cache and the full-list cache. Idempotent replays of all three writes skip invalidation; Update replays also skip delayed deletion.
+  - Detail and list deletions run concurrently, and the service awaits both attempts. Only a successful update repeats both deletions concurrently after `Redis:DelayedDeleteMs` (about two seconds by default).
 - **Update or delete fails because of a version conflict (409)**: The service makes a best-effort attempt to invalidate the detail and list caches, then rethrows the original exception.
-- **Update or delete fails because the product is missing (404)**: The service always attempts to invalidate the list cache. It also invalidates the detail key only when that key contains product data rather than a negative-cache placeholder. This failed-write policy does not apply to ordinary GET 404s or 409s caused by other errors.
+  - Both deletions run concurrently and handle cache errors independently. Invalidation is recorded as successful only when both succeed.
+- **Update or delete fails because the product is missing (404):** The service always attempts to invalidate the list cache. It invalidates the detail key only when it contains product data rather than a negative-cache placeholder.
+  - List deletion runs concurrently with detail processing. The detail lookup and conditional deletion remain sequential; lookup failures are logged.
+  - This failed-write policy does not apply to ordinary GET 404s or 409s caused by other errors.
 
-PostgreSQL and Redis do not share a transaction. Cache deletion failures are logged, and concurrent reads can repopulate old values after deletion, so these invalidations do not guarantee immediate read-after-write visibility. Repeated version conflicts or many writes against nonexistent IDs can increase full-list cache misses.
+**Cache consistency and failure boundaries:**
+
+- **Wait time:** Two seconds applies to each async command, and timeout detection may take slightly longer. Concurrent deletions primarily wait for the slower attempt. Initial connections, lock contention, database operations, and sequential commands in the 404 detail branch may add latency; the API is not guaranteed to return within two seconds.
+- **Read-after-write visibility:** PostgreSQL and Redis do not share a transaction. Cache deletion failures are logged, and concurrent reads can repopulate old values, so immediate visibility is not guaranteed.
+- **Redis recovery:** A stale detail entry whose deletion failed may remain until its TTL expires. A stale list may be returned under logical expiration before a background refresh replaces it.
+- **Load:** Database fallback adds load; repeated version conflicts or writes against nonexistent IDs can also increase full-list cache misses.
+- **Health checks:** Products readiness requires only PostgreSQL, while `/health` reports all dependencies. Redis dependencies in Admin Web and the Gateway can still affect end-to-end access.
 
 ### Future improvements (not implemented)
 
-- **Durable cache invalidation**: Record the invalidation intent in the same database transaction as the Product update, for example by extending the existing ProductOperations Outbox, then let a background worker retry Redis deletion. This improves the likelihood that invalidation eventually completes, but reads can still see the old cache before the worker runs; it does not provide immediate visibility.
-- **Version invalidation**: Update the Product and increment the database version for its detail or list cache in the same transaction. Before returning cached data, check the committed version in the authoritative database; on a mismatch, fetch the latest data from the database. This provides strong consistency for reads that begin after the update commits. The trade-off is one database version lookup per read. Keeping the version only in Redis does not provide strong consistency.
+- **Durable cache invalidation:** Record the invalidation intent in the same database transaction as the Product update in a new, separate cache-invalidation Outbox table. A background worker retries Redis deletion.
+  - This improves the likelihood of eventual invalidation, but reads can still see the old cache before the worker runs; it does not provide immediate visibility.
+- **Version invalidation:** Update the Product and increment the database version for its detail or list cache in the same transaction. Before returning cached data, check the committed version in the authoritative database and reload on a mismatch.
+  - This provides strong consistency for reads that begin after the update commits, at the cost of one database version lookup per read. Keeping the version only in Redis does not provide strong consistency.
 
 ## 📁 Repository Structure
 
@@ -307,17 +386,55 @@ docker compose --env-file docker/dev/.env -f docker/dev/docker-compose.yml -f do
 
 `docker/dev/.env` is ignored by Git. Never commit real passwords or Resend API tokens. The development IdentityServer URL is `http://localhost:8485`.
 
-The PostgreSQL bootstrap SQL only creates the logical database. EF Core migrations manage the Products and ProductOperations Outbox tables and indexes.
+The Products PostgreSQL bootstrap SQL only creates the logical database. EF Core migrations manage the Products and ProductOperations Outbox tables and indexes.
+
+### Access Token Revocation Configuration
+
+**Proof key**
+
+- Admin Web uses `AUTH_GATEWAY_PROOF_KEY_ID` and `AUTH_GATEWAY_PROOF_KEY`; configure the gateway with the same key ID and secret.
+- The gateway also needs `Authentication__SessionFallback__PostgresConnectionString` and `Authentication__SessionFallback__PostgresPassword`.
+- The proof key is separate from `AUTH_SECRET`, contains at least 32 random bytes, and is Base64 encoded. Generate one in PowerShell:
+
+```powershell
+[Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+```
+
+**Docker Compose**
+
+- **Development:** Set the proof key and ID in `docker/dev/.env` using [`docker/dev/.env.example`](docker/dev/.env.example). Compose supplies the same values to Admin Web and the gateway.
+- **Demo deployment:** Set both proof variables and `GATEWAY_DB_PASSWORD` in `docker/deploy/.env`, and set `GATEWAY_SESSION_FALLBACK_ENABLED` to `true`.
+- **Database permissions:** The gateway's `gateway_auth_reader` account has only database connect, `public` schema usage, and column-level read access to `auth_refresh_tokens(id)`.
+  - Compose runs SQL in `configs/postgres/init` only when a PostgreSQL volume is first initialized. For an existing volume, run [`create-gateway-auth-reader.sql`](configs/postgres/init/create-gateway-auth-reader.sql) manually or perform a planned rebuild.
+
+**AKS**
+
+- Each namespace needs a `gateway-auth-secrets` Secret with `proof-key-id`, `proof-key`, `postgres-connection-string`, and `postgres-password`.
+- **Dev:** The infrastructure pipeline uses the Key Vault variables `gateway-proof-key` and `gateway-db-password` to create the Secret and runs the read-only role SQL against an existing database.
+- **Other namespaces:** Create the Secret through that environment's secret-management process and run the SQL above before deployment. Point the connection string to PostgreSQL reachable from that namespace and use the gateway's read-only account.
+- The repository's AKS Redis Deployment covers dev only. If QA, UAT, staging, and prod use external Redis, configure AOF `everysec` and persistent storage on the existing shared instance while keeping `allkeys-lru` and the current service address.
 
 ### Products Database Migrations and Seed Data
 
-The Products API calls `Database.MigrateAsync()` through `MigrateDatabaseAsync()` to apply pending EF Core migrations, then imports sample products from `SeedData/products.json`, embedded in the Infrastructure assembly. Migration or seeding failures are logged at Critical level and rethrown, so the API does not start when database initialization fails.
+`MigrateDatabaseAsync()` prepares the Products database in this order:
 
-The seed process validates the JSON, queries existing rows by `ProductId`, and inserts only missing products. It does not overwrite or update existing products. Inserts are saved with one `SaveChangesAsync()` call. To coordinate multiple instances, seeding acquires the Redis distributed lock `lock:products-seed-data` and rechecks existing IDs after acquiring the lock; lock acquisition waits for up to one minute. The migration Job therefore needs both PostgreSQL and Redis configuration and connectivity.
+1. Call EF Core `Database.MigrateAsync()` to apply pending migrations.
+2. Import sample products from `SeedData/products.json`, embedded in the Infrastructure assembly.
 
-When running locally or with Docker Compose, `ProductsMigration:RunOnStartup` defaults to `true`, so the API applies migrations and seed data during startup. The migration Job uses the same API image with the `--migrate` argument, runs the same initialization flow, then exits without starting the HTTP server. All five AKS Products Deployments set `ProductsMigration__RunOnStartup=false`, so scaling or restarting API Pods does not repeat initialization. Azure Pipelines creates a uniquely named Job for each deployment and deploys the API only after that Job completes. A failed Job or timeout stops the release and triggers collection of Job status and logs.
+Migration or seeding failures are logged at Critical level and rethrown, so the API does not start if database initialization fails. The seed process has these boundaries:
 
-For a manual AKS deployment, run the Job defined by `aks/manifests/shared/backend/products-database-migration.yaml` with the target API image, confirm it succeeds, and then update the Deployment. Enable the **Exclusive lock** check separately on each Azure DevOps environment (dev, qa, uat, staging, and prod); the pipeline's `lockBehavior: sequential` relies on those environment checks to serialize releases to the same environment.
+- It validates the JSON and uses `INSERT ... ON CONFLICT DO NOTHING` for `ProductId` inside one database transaction.
+- Existing products are not overwritten. Job retries or occasional duplicate executions do not insert duplicates; other unique-key conflicts still fail.
+- The migration Job needs only PostgreSQL. Local and Docker Compose startup migration assumes one API instance; multi-instance deployments use a separate Job.
+
+**How it runs**
+
+- **Local and Docker Compose:** `ProductsMigration:RunOnStartup` defaults to `true`, so startup applies migrations and seed data.
+- **Migration Job:** The same API image runs with `--migrate`, completes initialization, then exits without starting the HTTP server.
+- **AKS:** All five Products Deployments set `ProductsMigration__RunOnStartup=false`, so scaling or restarting API Pods does not repeat initialization.
+  - Azure Pipelines creates a uniquely named Job for each release and deploys the API only after it completes. A Job failure or timeout stops the release and triggers collection of status and logs.
+- **Manual deployment:** Run the Job in `aks/manifests/shared/backend/products-database-migration.yaml` with the target API image, confirm success, then update the Deployment.
+  - Enable the **Exclusive lock** check on each Azure DevOps environment (dev, qa, uat, staging, and prod); `lockBehavior: sequential` relies on those checks to serialize releases to the same environment.
 
 **📦 Demo deployment** (pull pre-built images):
 
@@ -327,7 +444,12 @@ if (-not (Test-Path docker/deploy/.env)) { Copy-Item docker/deploy/.env.example 
 docker compose --env-file docker/deploy/.env -f docker/deploy/docker-compose.yml up -d
 ```
 
-This pulls `latest` by default. To pin a CI build, set `PRODUCTS_IMAGE_TAG`, `APIGATEWAY_IMAGE_TAG`, `IDENTITYSERVER_IMAGE_TAG`, `NOTIFICATIONS_IMAGE_TAG`, and `ADMINWEB_IMAGE_TAG` in `docker/deploy/.env` to the desired `sha-<commit>` tags, then restart:
+This pulls `latest` by default. To pin a CI build, set the desired `sha-<commit>` tags in `docker/deploy/.env`:
+
+- Backend: `PRODUCTS_IMAGE_TAG`, `APIGATEWAY_IMAGE_TAG`, `IDENTITYSERVER_IMAGE_TAG`, `NOTIFICATIONS_IMAGE_TAG`
+- Frontend: `ADMINWEB_IMAGE_TAG`
+
+Then restart:
 
 ```powershell
 docker compose --env-file docker/deploy/.env -f docker/deploy/docker-compose.yml up -d
@@ -355,6 +477,40 @@ docker compose --env-file docker/deploy/.env -f docker/deploy/docker-compose.yml
 3. Inspect the distributed trace in Jaeger — observe Redis and RabbitMQ child spans
 4. Open Grafana Logs, find a trace ID in a log entry, and jump directly to the Jaeger trace
 5. Check Consul UI for registered services; check RabbitMQ management for queue activity
+
+### RabbitMQ Quorum Queue and Dead-Letter Replay
+
+**Queue and alerts**
+
+- The Notifications consumer declares `notifications.products.operations` as a quorum queue with `x-message-ttl = 10000` (10 seconds), `x-delivery-limit = 3`, and dead-letter routing. Recreate the main queue when changing these declaration arguments.
+- The dead-letter queue has no TTL or length limit. TTL limits only the time a message waits in the main queue; expired messages can still be replayed manually.
+- Prometheus checks pending messages and consumer count only for the main notification queue.
+- If `notifications.products.operations.dead-letter` contains messages for one minute, Alertmanager sends a critical alert to Slack. The DLQ normally has no standing consumer, so a no-consumer alert does not apply.
+
+On local startup, the Notifications consumer declares the main queue and dead-letter routing; no separate RabbitMQ policy is required:
+
+```powershell
+docker compose --env-file docker/dev/.env -f docker/dev/docker-compose.yml -f docker/dev/docker-compose.override.yml up -d
+```
+
+**Manual replay in AKS**
+
+1. The Notifications pipeline builds the `notifications-dlq-replay:<BuildId>` image but does not run replay automatically. Confirm that the consumer has recovered and inspect the DLQ first.
+2. Register the [Notifications DLQ Replay pipeline](aks/pipelines/azure-pipelines-notifications-dlq-replay.yaml) once in Azure DevOps. For each replay, select the branch for the target environment, click **Run pipeline**, and choose `targetEnvironment`.
+3. The replay pipeline uses the Azure DevOps API to find the latest successful `NotificationsMicroservice` `BuildId` on that branch and select the image. It stops if there is no successful run.
+4. Using the target environment's Kubernetes Service Connection, the pipeline creates a one-time Job, waits for completion, and reports the result in its logs. `trigger: none` prevents commits from launching replay automatically.
+
+For local debugging, run the console app after starting RabbitMQ. Connection and limit settings are in `NotificationsMicroservice.DlqReplay/appsettings.json` and can be overridden with environment variables:
+
+```powershell
+dotnet run --project src/backend/Services/Notifications/NotificationsMicroservice.DlqReplay/NotificationsMicroservice.DlqReplay.csproj
+```
+
+**Job limits and idempotency**
+
+- The Job reads RabbitMQ connection details from `notifications-microservice-secrets`. By default, it inspects at most 10 messages and runs for 60 seconds.
+- It automatically replays only messages dead-lettered for `expired` or `delivery_limit`; `rejected` and other reasons remain in the DLQ for investigation. Each `MessageId` is replayed at most once per run, and the `manual-replay-count` header limits replay to three rounds.
+- The Job ACKs the original dead-letter message only after publication is confirmed. A failure between confirmation and ACK may publish it again; Notifications DB deduplicates by `NotificationId` and the original payload.
 
 ## ❓ FAQ
 
@@ -407,6 +563,8 @@ docker compose --env-file docker/deploy/.env -f docker/deploy/docker-compose.yml
 ```powershell
 dotnet build MicroservicesDemo.sln
 dotnet test tests/ProductsServiceUnitTests/ProductsServiceUnitTests.csproj
+# Requires Docker Desktop; isolated PostgreSQL/Redis containers are created and cleaned up automatically
+dotnet test tests/ProductsServiceIntegrationTests/ProductsServiceIntegrationTests.csproj
 dotnet test tests/IdentityServerUnitTests/IdentityServerUnitTests.csproj
 Set-Location src/frontend/admin-web
 npm ci
@@ -415,7 +573,10 @@ npm test
 npm run build
 ```
 
-Backend tests cover product CRUD, message idempotency, API controllers, exception-handling middleware, AutoMapper mappings, Redis caching decorators, OpenTelemetry decorators, and IdentityServer login, registration, email confirmation, and resend flows. The frontend is checked with ESLint, Vitest, and a production Next.js build.
+Test coverage:
+
+- **Backend:** Product CRUD, API idempotency for all three writes with Redis/database fallback, real PostgreSQL/Redis concurrency and rollback integration tests, message idempotency, API controllers, exception-handling middleware, AutoMapper mappings, Redis caching decorators, OpenTelemetry decorators, and IdentityServer login, registration, email confirmation, and resend flows.
+- **Frontend:** ESLint, Vitest, and a production Next.js build.
 
 ## 💪 Engineering Competencies Demonstrated
 
@@ -429,9 +590,13 @@ Backend tests cover product CRUD, message idempotency, API controllers, exceptio
 ## 🎯 Future Extensions
 
 - **Product details page**: Add an Admin Web page that fetches a product by ID, displays its details, and reuses the existing by-ID API and detail cache.
-- **Products Pod autoscaling (HPA)**: HPA can be added to the Products Deployments in dev, qa, uat, staging, and prod to adjust Pod counts based on CPU utilization. It requires sensible CPU requests for each container and an AKS resource metrics API. Actual scaling is also constrained by available node capacity and PostgreSQL connection and processing capacity. More replicas consume additional cluster resources and increase concurrent database load, so scaling limits should be set using load tests. HPA is not currently deployed.
+- **Products Pod autoscaling (HPA):** HPA could adjust Products Pod counts by CPU utilization in dev, qa, uat, staging, and prod. It is not currently deployed.
+  - **Requirements:** Containers need sensible CPU requests and AKS needs a resource metrics API. Available node capacity and PostgreSQL connection and processing capacity also constrain scaling.
+  - **Capacity tradeoff:** More replicas use more cluster resources and increase concurrent database load. Set scaling limits using load tests.
 - Introduce the Saga pattern for distributed transaction consistency
-- Add optional TOTP multi-factor authentication: provide an IdentityServer account-security page where users can bind authenticator apps such as Google Authenticator or Microsoft Authenticator; require a six-digit time-based code after password verification, with one-time recovery codes, authenticator reset, and security audit events. 2FA is not mandatory in the current demo; it can be enforced for administrators or sensitive operations later. Email codes may be used for recovery or as a transition path, but not as the final high-assurance authenticator
+- **Optional TOTP multi-factor authentication:** Add an IdentityServer account-security page where users can bind apps such as Google Authenticator or Microsoft Authenticator. After password verification, require a six-digit time-based code.
+  - Provide one-time recovery codes, authenticator reset, and security audit events.
+  - 2FA is optional in the current demo; TOTP could be required for administrators or sensitive operations. Email codes may support recovery or a transition, but are not the final high-assurance authenticator.
 
 
 ## 🖼️ Screenshots and Evidence
@@ -512,17 +677,29 @@ The Nginx pod in the AKS application-routing namespace is `Running` and Ready, p
 
 ### 🔭 Tracing, Metrics, and Logs
 
-**Evidence to look for:** Jaeger traces cover OIDC sign-in, token issuance, and business requests propagating through the gateway, APIs, Redis, and RabbitMQ-related spans. Grafana and log-to-trace links show that metrics and logs can be investigated in the same distributed trace context.
+**Evidence to look for:**
+
+- Jaeger shows traces for OIDC sign-in, token issuance, and business requests through the gateway, APIs, Redis, and RabbitMQ-related spans.
+- Grafana and log-to-trace links show how to investigate metrics and logs in the same distributed trace context.
 
 #### 🔐 IdentityServer OIDC Login Flow
 
-This screenshot shows the four authentication traces produced by one sign-in operation: `POST /Account/Login` validates the user and establishes the login session, the authorization callback resumes the original authorize request, discovery retrieves the OIDC metadata, and the BFF finally calls the token endpoint. Browser front-channel redirects and BFF back-channel HTTP requests appear as separate traces in Jaeger.
+This screenshot shows four authentication traces from one sign-in operation:
+
+1. `POST /Account/Login` validates the user and establishes the login session.
+2. The authorization callback resumes the original authorize request.
+3. Discovery retrieves the OIDC metadata.
+4. The BFF calls the token endpoint.
+
+Browser front-channel redirects and BFF back-channel HTTP requests appear as separate traces in Jaeger.
 
 ![IdentityServer OIDC Login Flow](images/JaegerIdentityServerLoginFlow.png)
 
 #### 🎫 Authorization Code Token Exchange
 
-The token endpoint trace shows the BFF exchanging a one-time authorization code for tokens. IdentityServer retrieves and removes the code, validates the client and scopes, creates the access, refresh, and identity tokens, and signs the JWTs. Removing the authorization code after redemption prevents replay.
+The token endpoint trace shows the BFF exchanging a one-time authorization code for tokens. IdentityServer retrieves and removes the code, validates the client and scopes, creates the access, refresh, and identity tokens, and signs the JWTs.
+
+Removing the authorization code after redemption prevents replay.
 
 <details>
 <summary>Expand the complete token exchange trace</summary>
@@ -583,7 +760,9 @@ This screenshot shows the reverse path: use the TraceID in a log entry to open t
 
 ## 🤝 Contributing
 
-Contributions are welcome! Read [CONTRIBUTING.md](CONTRIBUTING.md) for the branch strategy, commit-message format, code-quality requirements, and PR guidelines before submitting. When documentation changes, keep the [Chinese README](README.md) in sync.
+Contributions are welcome! Before submitting, read [CONTRIBUTING.md](CONTRIBUTING.md) for the branch strategy, commit-message format, code-quality requirements, and PR guidelines.
+
+When documentation changes, keep the [Chinese README](README.md) in sync.
 
 ## 📄 License
 

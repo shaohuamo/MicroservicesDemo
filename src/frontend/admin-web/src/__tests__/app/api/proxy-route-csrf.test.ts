@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { NextRequest } from "next/server";
-import { POST } from "@/app/api/[...path]/route";
+import { POST, PUT, DELETE } from "@/app/api/[...path]/route";
+
+vi.mock("@/lib/auth/gateway-session-proof", () => ({
+  GATEWAY_PROOF_HEADERS: ["x-admin-session-id", "x-admin-proof-iat", "x-admin-proof-kid", "x-admin-proof-sig"],
+  getRefreshTokenRecordId: vi.fn(async () => "11111111-1111-1111-1111-111111111111"),
+  applyGatewaySessionProof: vi.fn(),
+}));
 
 type RouteContext = { params: Promise<{ path: string[] }> };
 
@@ -19,12 +25,14 @@ const context = {
 function createProxyRequest({
   headers,
   body,
+  method = "POST",
 }: {
   headers: Record<string, string>;
   body?: string;
+  method?: string;
 }) {
   return {
-    method: "POST",
+    method,
     headers: new Headers(headers),
     nextUrl: new URL("https://250669.xyz/api/products"),
     arrayBuffer: async () => new TextEncoder().encode(body ?? "").buffer,
@@ -109,6 +117,8 @@ describe("admin API proxy CSRF protection", () => {
         headers: {
           referer: "https://250669.xyz/products",
           cookie: "authjs.session-token=secret; MicroservicesDemo.Culture=c%3Den",
+          authorization: "Bearer browser-supplied-token",
+          "x-admin-proof-sig": "browser-forgery",
         },
         body: JSON.stringify({ displayName: "Coffee" }),
       }),
@@ -120,18 +130,24 @@ describe("admin API proxy CSRF protection", () => {
     const headers = init?.headers as Headers;
     expect(headers.get("cookie")).toBeNull();
     expect(headers.get("authorization")).toBe("Bearer access-token");
+    expect(headers.get("x-admin-proof-sig")).toBeNull();
   });
 
-  it("forwards the idempotency key unchanged", async () => {
+  it.each(["POST", "PUT", "DELETE"])("forwards the idempotency key and replay response unchanged for %s", async (method) => {
     vi.stubEnv("API_GATEWAY_INTERNAL_URL", "http://apigateway");
     vi.stubEnv("FRONTEND_PUBLIC_URL", "https://250669.xyz");
     const key = "7f277273-b334-47f9-8b59-d37aa3473665";
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ productId: "p1" }), { status: 201 }),
+      new Response(JSON.stringify({ productId: "p1" }), {
+        status: method === "POST" ? 201 : 200,
+        headers: { "idempotency-replayed": "true", "idempotency-outcome": "replayed" },
+      }),
     );
 
-    await POST(
+    const handler = { POST, PUT, DELETE }[method as "POST" | "PUT" | "DELETE"];
+    const response = await handler(
       createProxyRequest({
+        method,
         headers: {
           referer: "https://250669.xyz/products",
           "content-type": "application/json",
@@ -144,5 +160,7 @@ describe("admin API proxy CSRF protection", () => {
 
     const [, init] = fetchMock.mock.calls[0];
     expect((init?.headers as Headers).get("idempotency-key")).toBe(key);
+    expect(response.headers.get("idempotency-replayed")).toBe("true");
+    expect(response.headers.get("idempotency-outcome")).toBe("replayed");
   });
 });

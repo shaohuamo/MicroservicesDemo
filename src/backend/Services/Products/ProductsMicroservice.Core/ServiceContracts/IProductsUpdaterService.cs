@@ -1,4 +1,4 @@
-﻿using ProductsMicroservice.Core.DTO;
+using ProductsMicroservice.Core.DTO;
 
 namespace ProductsMicroservice.Core.ServiceContracts;
 
@@ -9,5 +9,5 @@ public interface IProductsUpdaterService
     /// </summary>
     /// <param name="productUpdateRequest">Product data to update</param>
     /// <returns>Returns the product after a successful update.</returns>
-    Task<ProductResponse> UpdateProductAsync(ProductUpdateRequest productUpdateRequest);
+    Task<ProductUpdateResult> UpdateProductAsync(ProductUpdateRequest productUpdateRequest, Guid idempotencyKey);
 }

@@ -4,6 +4,7 @@ import { context, propagation, SpanKind, SpanStatusCode } from "@opentelemetry/a
 import { normalizeNotificationItem } from "@/lib/notifications/notification-message";
 import { getServerTracer, logServerEvent, SeverityNumber } from "@/lib/notifications/server-otel";
 import type { NotificationReplayResponse } from "@/types/notification";
+import { applyGatewaySessionProof } from "@/lib/auth/gateway-session-proof";
 
 const REPLAY_PAGE_SIZE = 100;
 
@@ -38,7 +39,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 function readSafeInteger(record: Record<string, unknown>, ...keys: string[]) {
   for (const key of keys) {
     const raw = record[key];
-    const number = typeof raw === "number" ? raw : Number(raw);
+    const number = typeof raw === "number" ? raw : NaN;
     if (Number.isSafeInteger(number) && number >= 0) return number;
   }
 
@@ -47,23 +48,17 @@ function readSafeInteger(record: Record<string, unknown>, ...keys: string[]) {
 
 export async function fetchNotificationReplayPage({
   accessToken,
-  afterSequence,
-  upToSequence,
+  refreshTokenRecordId,
+  cursor,
   signal,
 }: {
   accessToken: string;
-  afterSequence: number;
-  upToSequence?: number;
+  refreshTokenRecordId: string;
+  cursor?: string;
   signal?: AbortSignal;
 }): Promise<NotificationReplayResponse> {
-  const query = new URLSearchParams({
-    afterSequence: String(afterSequence),
-    limit: String(REPLAY_PAGE_SIZE),
-  });
-
-  if (upToSequence !== undefined) {
-    query.set("upToSequence", String(upToSequence));
-  }
+  const query = new URLSearchParams({ limit: String(REPLAY_PAGE_SIZE) });
+  if (cursor !== undefined) query.set("cursor", cursor);
 
   const replayUrl = `${getGatewayBaseUrl()}/gateway/notifications/replay?${query.toString()}`;
   const response = await getServerTracer().startActiveSpan(
@@ -71,6 +66,7 @@ export async function fetchNotificationReplayPage({
     { kind: SpanKind.CLIENT },
     async (span) => {
       const headers = new Headers({ accept: "application/json", authorization: `Bearer ${accessToken}` });
+      applyGatewaySessionProof(headers, refreshTokenRecordId, accessToken);
       span.setAttribute("http.request.method", "GET");
       span.setAttribute("http.route", "/gateway/notifications/replay");
       propagation.inject(context.active(), headers, {
@@ -133,26 +129,10 @@ export async function fetchNotificationReplayPage({
   const items = Array.isArray(rawItems)
     ? rawItems.map(normalizeNotificationItem).filter((item) => item !== null)
     : [];
-  const inferredWatermark = items.reduce(
-    (current, item) => Math.max(current, item.sequenceNumber),
-    afterSequence,
-  );
-  const watermark = readSafeInteger(record, "watermark", "Watermark")
-    ?? upToSequence
-    ?? inferredWatermark;
-  const explicitNext = readSafeInteger(
-    record,
-    "nextAfterSequence",
-    "NextAfterSequence",
-  );
-  const nextAfterSequence = explicitNext
-    ?? (items.length === REPLAY_PAGE_SIZE
-      ? items.at(-1)?.sequenceNumber ?? null
-      : null);
-
-  return {
-    items,
-    nextAfterSequence,
-    watermark,
-  };
+  const watermark = readSafeInteger(record, "watermark", "Watermark");
+  const nextCursor = Object.hasOwn(record, "nextCursor") ? record.nextCursor : record.NextCursor;
+  if (watermark === null || (nextCursor !== null && (typeof nextCursor !== "string" || !nextCursor))) {
+    throw new NotificationGatewayError("Notification replay returned an invalid page cursor or watermark.", 503);
+  }
+  return { items, nextCursor, watermark };
 }

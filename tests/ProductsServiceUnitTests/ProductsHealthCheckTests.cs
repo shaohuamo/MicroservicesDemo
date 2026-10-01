@@ -6,18 +6,21 @@ using Moq;
 using ProductsMicroservice.Infrastructure.DbContext;
 using ProductsMicroService.API.Health;
 using StackExchange.Redis;
+using ProductsMicroservice.Infrastructure.Redis;
 
 namespace ProductsServiceUnitTests;
 
 public sealed class ProductsHealthCheckTests
 {
     private readonly Mock<IConnectionMultiplexer> _connection = new();
+    private readonly Mock<IProductsRedisConnectionProvider> _connections = new();
     private readonly Mock<IDatabase> _redisDatabase = new();
 
     public ProductsHealthCheckTests()
     {
         _connection.Setup(connection => connection.GetDatabase(It.IsAny<int>(), It.IsAny<object>()))
             .Returns(_redisDatabase.Object);
+        _connections.Setup(provider => provider.GetConnectionAsync()).ReturnsAsync(_connection.Object);
     }
 
     #region Database
@@ -92,7 +95,7 @@ public sealed class ProductsHealthCheckTests
     {
         _redisDatabase.Setup(database => database.PingAsync(CommandFlags.None))
             .ReturnsAsync(TimeSpan.FromMilliseconds(1));
-        var check = new ProductsRedisHealthCheck(_connection.Object);
+        var check = new ProductsRedisHealthCheck(_connections.Object);
 
         HealthCheckResult result = await check.CheckHealthAsync(new HealthCheckContext());
 
@@ -106,7 +109,7 @@ public sealed class ProductsHealthCheckTests
         _redisDatabase.SetupSequence(database => database.PingAsync(CommandFlags.None))
             .ThrowsAsync(new InvalidOperationException("Redis unavailable"))
             .ReturnsAsync(TimeSpan.FromMilliseconds(1));
-        var check = new ProductsRedisHealthCheck(_connection.Object);
+        var check = new ProductsRedisHealthCheck(_connections.Object);
 
         HealthCheckResult failed = await check.CheckHealthAsync(new HealthCheckContext());
         HealthCheckResult recovered = await check.CheckHealthAsync(new HealthCheckContext());
@@ -123,10 +126,22 @@ public sealed class ProductsHealthCheckTests
             .Returns(pendingPing.Task);
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
-        var check = new ProductsRedisHealthCheck(_connection.Object);
+        var check = new ProductsRedisHealthCheck(_connections.Object);
 
         HealthCheckResult result = await check.CheckHealthAsync(
             new HealthCheckContext(), cancellation.Token);
+
+        result.Status.Should().Be(HealthStatus.Unhealthy);
+    }
+
+    [Fact]
+    public async Task RedisCheck_WhenInitialConnectionFails_ReturnsUnhealthy()
+    {
+        _connections.Setup(provider => provider.GetConnectionAsync())
+            .ThrowsAsync(new InvalidOperationException("Redis offline"));
+        var check = new ProductsRedisHealthCheck(_connections.Object);
+
+        HealthCheckResult result = await check.CheckHealthAsync(new HealthCheckContext());
 
         result.Status.Should().Be(HealthStatus.Unhealthy);
     }

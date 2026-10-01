@@ -2,7 +2,9 @@
 
 [English](README.en.md) | 简体中文
 
-**MicroservicesDemo** 是一个基于 .NET 9 的微服务演示项目，展示 API Gateway 路由、服务发现、事件驱动消息、分布式缓存、可观测性与 Clean Architecture 的整合落地；既支持通过 Docker Compose 在本地运行，也提供部署在 AKS 上的在线演示环境。
+**MicroservicesDemo** 是一个基于 .NET 9 的微服务演示项目，展示 API Gateway 路由、服务发现、事件驱动消息、分布式缓存、可观测性与 Clean Architecture 的整合落地。
+
+项目支持通过 Docker Compose 在本地运行，也提供部署在 AKS 上的在线演示环境。
 
 ## 🌐 在线体验
 
@@ -16,7 +18,9 @@
 - 更新、新增或删除成功时，系统会发送通知。
 - 更新、新增或删除失败时，系统会显示错误信息，提示用户修改。
 
-> **邮箱验证提示：** 注册后，验证邮件通常需要 2–5 分钟送达。若收件箱中暂未看到，请检查垃圾邮件或广告邮件目录；由于发信域名注册时间较短，部分邮件服务商可能会暂时将验证邮件归类为垃圾邮件。
+> **邮箱验证提示：** 注册后，验证邮件通常需要 2–5 分钟送达。
+>
+> 若收件箱中暂未看到，请检查垃圾邮件或广告邮件目录。由于发信域名注册时间较短，部分邮件服务商可能暂时将邮件归类为垃圾邮件。
 
 在线环境同时提供以下可观测性入口：
 
@@ -103,7 +107,10 @@
 [![Products Microservice Build Status](https://dev.azure.com/lambdazb/MicroservicesDemo/_apis/build/status%2FProductsMicroservice?branchName=dev&label=Products%20Microservice)](https://dev.azure.com/lambdazb/MicroservicesDemo/_build/latest?definitionId=1&branchName=dev)
 [![Infrastructure Build Status](https://dev.azure.com/lambdazb/MicroservicesDemo/_apis/build/status%2Finfrastructure?branchName=dev&label=Infrastructure)](https://dev.azure.com/lambdazb/MicroservicesDemo/_build/latest?definitionId=4&branchName=dev)
 
-以上徽章动态展示各流水线在 `dev` 分支上的最新运行状态；点击徽章可进入对应的 Azure Pipeline。应用流水线负责构建镜像、推送至 ACR 并部署到 AKS。平台流水线负责基础设施、Ingress 与集群附加组件。
+以上徽章展示各流水线在 `dev` 分支上的最新状态，点击可进入对应的 Azure Pipeline。
+
+- **应用流水线：**构建镜像、推送至 ACR 并部署到 AKS。
+- **平台流水线：**负责基础设施、Ingress 与集群附加组件。
 
 | 类型 | 流水线定义 |
 | --- | --- |
@@ -172,14 +179,21 @@
 
 ### 🔐 认证与请求链路
 
-`Next.js UI` 与 `BFF` 是同一个 Admin Web 部署中的逻辑组件，并非两个独立服务。BFF 在服务端维护 NextAuth Session 和令牌，因此浏览器无需直接持有 Access Token 或调用 API Gateway。
+`Next.js UI` 与 `BFF` 是同一个 Admin Web 部署中的逻辑组件，并非两个独立服务。
+
+浏览器携带加密的 NextAuth 会话 Cookie。BFF 从中读取 Access Token 并代理 API 请求；浏览器代码无需直接读取 Access Token 或调用 API Gateway。
 
 | 关系 | 说明 |
 | --- | --- |
 | `Next.js UI → BFF` | 浏览器通过同源 HTTPS 调用 Next.js API Route |
-| `BFF → API Gateway` | BFF 从服务端 Session 读取 Access Token，并以 Bearer Token 代理 API 请求 |
+| `BFF → API Gateway` | BFF 从会话 Cookie 的 JWT 载荷读取 Access Token，并以 Bearer Token 代理 API 请求 |
 | `Admin Web / Browser ↔ IdentityServer` | 未登录时由 Admin Web 发起 OIDC 登录并重定向浏览器；用户在 IdentityServer 完成注册与邮箱确认、登录；BFF 处理回调、Token 换取、Token 刷新与登出 |
 | `API Gateway ⇢ IdentityServer` | 网关获取并缓存 OIDC Metadata/JWKS，在本地校验 JWT 的签名、Issuer、Audience 与有效期 |
+
+1. 登录回调使用 OIDC Authorization Code 换取 Access Token、ID Token 和 Refresh Token。
+2. Access Token 与 ID Token 保存在加密的会话 Cookie 中；Refresh Token 加密存入 Admin Web 的 PostgreSQL，Cookie 只保存其记录 ID。
+3. IdentityServer 刷新成功后，BFF 更新 Cookie 中的 Access Token；若返回新 Refresh Token，也更新 PostgreSQL 记录。
+4. 登出时尝试将 Access Token 加入 Redis 拒绝列表，并删除 PostgreSQL 中的 Refresh Token 记录。
 
 ## ⚖️ 设计与权衡
 
@@ -187,8 +201,42 @@
 
 - **现象：**Access Token 临近到期时，商品列表、通知列表和通知 SSE 回放请求可能分别调用 `/connect/token`。
 - **原因：**这些独立请求可能同时携带旧会话 Cookie，在浏览器收到刷新后的 Cookie 前都判断需要刷新。[Auth.js 官方文档](https://authjs.dev/guides/refresh-token-rotation)也指出了并发刷新竞争。
-- **当前采用的方案：**仅在调用后端 API 前，且 Cookie 中的 Access Token 进入到期前 60 秒窗口时按需刷新。以每次登录的 Refresh Token 记录 ID 为键，用 Redis 结果键和锁协调各副本；取得锁后再次检查结果，仅锁持有者调用 IdentityServer。成功结果加密存储，TTL 为 30 秒与“距到期前 60 秒窗口还剩的时间减 1 秒”中的较小值；失败结果保留 15 秒。等待者最多等待 8 秒，超时返回可重试的 503；刷新调用最多等待 45 秒，锁有效期 50 秒。BFF 响应将新 Token 写回会话 Cookie；登出时撤销锁并暂时标记会话失效，阻止进行中的刷新重新发布结果。
-- **权衡：**为了减少 IdentityServer 的重复调用，接受临近到期时请求等待刷新完成，并依赖 Redis；Redis 不可用时返回错误，不直接绕过锁刷新。30 秒结果缓存覆盖通常相近的并发请求，但锁或结果可能因过期、重启或当前的 `allkeys-lru` 策略提前丢失；此时仍可能重复刷新，因此不保证无条件的“严格一次”。[Redis 文档](https://redis.io/docs/latest/develop/reference/eviction/)说明了键淘汰行为。
+- **当前采用的方案：**
+  - **触发：**仅在调用后端 API 前，且 Cookie 中的 Access Token 进入到期前 60 秒窗口时按需刷新。
+  - **Redis 协调：**以每次登录的 Refresh Token 记录 ID 为键，用结果键和锁协调各副本。取得锁后再次检查结果，仅锁持有者调用 IdentityServer。
+  - **结果缓存：**成功结果加密存储，TTL 为 30 秒与“距到期前 60 秒窗口还剩的时间减 1 秒”中的较小值；失败结果保留 15 秒。
+  - **超时：**Redis 正常时，等待者最多等待 8 秒，超时返回可重试的 503；刷新调用最多等待 45 秒，锁有效期 50 秒。
+  - **Redis 故障时：**各请求直接从 PostgreSQL 取得 Refresh Token 并独立刷新，不写入 Redis 结果缓存；成功返回前确认数据库记录尚未被删除。
+  - **会话更新：**BFF 响应将新 Token 写回会话 Cookie；正常登出时撤销 Redis 锁并暂时标记会话失效，阻止进行中的刷新重新发布结果。
+- **权衡：**
+  - Redis 故障期间，并发请求可能分别调用 IdentityServer，增加其负载；结果已取得后若 Redis 发布失败，不会再次调用 IdentityServer。
+  - 数据库记录复查无法消除复查后紧接着登出的竞争。
+  - 30 秒结果缓存覆盖 Redis 正常时相近的并发请求，但锁或结果可能因过期、重启或 `allkeys-lru` 策略提前丢失，因此不保证无条件的“严格一次”。[Redis 文档](https://redis.io/docs/latest/develop/reference/eviction/)说明了键淘汰行为。
+
+### Access Token Revocation
+
+- **现象：**用户登出后，尚未过期的 Access Token 仍可能通过 JWT 签名与有效期校验；Redis 故障或重启时，网关也可能无法可靠读取撤销记录。
+- **原因：**JWT 本身不记录服务端登出状态，网关需要额外检查拒绝列表。Redis 的 [AOF `everysec` 持久化](https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/)可降低重启丢失风险，但不能阻止[内存驱逐](https://redis.io/docs/latest/develop/reference/eviction/)。
+- **当前采用的方案：**
+  - **登出：**Admin Web 尝试将 Access Token 加入与 Products 共用的 Redis 拒绝列表，并删除 PostgreSQL 中的 Refresh Token 记录。
+  - **Redis 正常时：**网关先校验 JWT，再查拒绝列表；命中拒绝，未命中放行。
+  - **Redis 不可用或刚恢复时：**连接或命令失败，以及恢复后的 930 秒保护期内，网关只接受带有 Admin Web 服务端短时证明的请求，并查询 `auth_refresh_tokens.id` 是否存在。
+  - **回退结果：**直连网关的请求返回 401，数据库不可用时返回 503。查询只确认会话尚未被显式登出，不验证 IdentityServer Refresh Token。
+  - **有效期：**Access Token 有效期为 900 秒，网关时钟偏差为 30 秒，拒绝列表键保留至 `exp + 30 秒`；[IdentityModel 的默认偏差为 300 秒](https://learn.microsoft.com/en-us/dotnet/api/microsoft.identitymodel.tokens.tokenvalidationparameters.defaultclockskew)。
+- **权衡：**
+  - Redis 故障时查询 PostgreSQL 会增加数据库负载，直连网关的客户端无法使用会话回退。
+  - 健康 Redis 若提前驱逐拒绝列表键，不会触发数据库查询，旧 Token 可能在剩余有效期内通过。
+  - Admin Web 的 Redis 写入失败而网关读取仍正常，或网关未观察到短暂故障时，也存在同样窗口，即使登出已删除数据库记录。若需要覆盖这种单侧故障，必须在 Redis 健康时也查询数据库，或引入网关可感知的持久撤销重试机制。
+
+### API 的幂等性
+
+- **现象：**客户端可能在商品写入已提交后遇到超时或响应丢失。HTTP PUT/DELETE 的效果幂等并不保证重试返回首次结果；带 `Version` 的更新重试可能返回 409，删除重试可能返回 404。
+- **原因：**HTTP 方法的幂等语义不保证重试能拿到首次成功的响应，因此需要记录请求结果并识别重复请求。
+- **当前采用的方案：**
+  - Add、Update、Delete 要求客户端提供幂等键。相同请求重试会重放首次成功结果；相同键用于不同请求时返回冲突。
+  - PostgreSQL 保存成功结果并作为最终依据；Redis 优先提供快速重放，未命中或不可用时回退数据库。商品变更与幂等记录原子提交，避免已提交的写入因响应丢失而重复执行。
+  - Admin Web 在请求结果不确定时保留幂等键，BFF 负责透传相关请求和响应头。
+- **权衡：**幂等记录有保留期限，过期清理后不再保证去重。Redis 与数据库不共享事务，Redis 故障或缓存未命中会增加数据库负载；重放返回的是首次成功结果，不一定反映商品当前状态。消息投递仍是至少一次。
 
 ## ⚙️ 技术选型
 
@@ -213,7 +261,8 @@
 **📐 产品管理（Products Service）**
 
 - Product 的增删改查（CRUD）Endpoint，通过 Ocelot Gateway 对外暴露
-- Add Product 要求客户端提供 canonical UUID v4 格式的 `Idempotency-Key`；PostgreSQL 以 `(UserId, Operation, IdempotencyKey)` 唯一约束保存最终响应，同一请求重试返回相同的成功响应，payload 不一致返回冲突错误
+- Add、Update、Delete 都要求客户端提供 canonical UUID v4 格式的 `Idempotency-Key`。
+  - Redis 优先重放成功结果，未命中或不可用时回退 PostgreSQL；数据库以 `(UserId, Operation, IdempotencyKey)` 唯一约束保存结果，同键不同 payload 返回 409。
 - Product Add/Delete/Update 通过 ProductOperations Outbox 与 RabbitMQ 异步交给 Notifications Service
 
 **🚀 服务治理（Gateway + Consul / Kubernetes DNS）**
@@ -229,27 +278,40 @@
 
 **🔐 身份认证（IdentityServer + Admin Web）**
 
-- Admin Web 使用 OIDC Authorization Code Flow 登录，并维护服务端会话与令牌刷新
-- 支持用户注册、Resend 邮箱确认与 Redis 频率限制；`NormalizedEmail` 上的唯一索引与 `RequireUniqueEmail` 共同保证邮箱大小写无关的唯一性，即使并发注册绕过远程校验也不会产生重复账户；Products 路由要求有效 Bearer Token 和 `products-api` scope
+- Admin Web 使用 OIDC Authorization Code Flow 登录，并通过加密的会话 Cookie 与 PostgreSQL 中的 Refresh Token 记录维护令牌刷新
+- 支持用户注册、Resend 邮箱确认与 Redis 频率限制。
+  - `NormalizedEmail` 上的唯一索引与 `RequireUniqueEmail` 保证邮箱大小写无关的唯一性，即使并发注册绕过远程校验也不会产生重复账户。
+  - Products 路由要求有效 Bearer Token 和 `products-api` scope。
 - 唯一索引通过 EF Migration 管理，并由 IdentityServer 启动时的 `Database.Migrate()` 自动应用；EF 的迁移历史确保同一数据库只执行一次
 - 登出时将访问令牌加入 Redis 拒绝列表，网关可配置为校验失败时拒绝访问
 
 **📨 消息与通知可靠性**
 
-- **原子写入**：Product Add/Delete/Update 与 `ProductOperationOutbox` 使用同一个 EF Core 工作单元，通过一次 `SaveChanges` 原子提交。
+- **原子写入**：Product Add/Delete/Update、`ProductOperationOutbox` 与 `IdempotencyRecord` 使用同一个 EF Core 工作单元，通过一次 `SaveChanges` 原子提交。
 - **可靠发布**：Outbox Dispatcher 使用 publisher confirm 发布 `products.operation.completed`；`NotificationId`（UUID v7）同时作为 RabbitMQ `MessageId` 和端到端幂等键。
-- **幂等消费与故障接管**：Notifications Consumer 按消息哈希幂等落库；Delivery Worker 使用 PostgreSQL 行租约协调多副本，RabbitMQ DLQ 处理无法投递的消息，Redis Pub/Sub 只承担实时路由，不承担持久化。
+- **幂等消费与故障接管：**Notifications Consumer 按消息哈希幂等落库；Delivery Worker 用 PostgreSQL 行租约协调多副本。
+  - RabbitMQ DLQ 处理无法投递的消息；Redis Pub/Sub 只承担实时路由，不承担持久化。
 - **死信与人工重放**：Notifications 使用 quorum 主队列；队列声明设置 10 秒消息 TTL 和投递次数限制，RabbitMQ 将符合死信条件的消息送往 DLQ。操作人员手动运行 Azure DevOps 流水线，在 AKS 中启动一次性重放 Job。
 - **在线与离线投递**
 
-  - **投递规则**：在线投递等待浏览器 ACK，失败后重试并降级邮件；`SequenceNumber`、`Last-Event-ID` 和 BFF Presence 支持通知排序与断线补偿，用户离线时通过 Resend 发送邮件。
+  - **投递规则**：在线投递等待浏览器 ACK，失败后重试并降级邮件；站内 ACK 独立于邮件状态记录，SSE 建连按操作发生时间降序补发所有未站内确认通知。BFF Presence 支持实时路由，`SequenceNumber` 用于分页上界和相同时间的稳定排序。
   - **通知工作流程**：
 
-    1. Products Service 在同一数据库事务中提交商品操作和 `ProductOperationOutbox`。Outbox Dispatcher 将结果发布到 RabbitMQ；Notifications Consumer 校验消息，按 `NotificationId` 和 payload hash 幂等写入 Notifications DB，成功后确认 RabbitMQ 消息。
-    2. 用户登录 Admin Web 后，浏览器通过 `EventSource` 请求 `/api/notifications/stream`。BFF 首次处理该进程的连接时，创建独立的 Redis 订阅连接，订阅 `notifications:bff:{instanceId}`；每个 BFF 进程共用一个频道，`instanceId` 由实例名称与随机 UUID 组成。
-    3. 订阅成功后，BFF 为浏览器连接生成 `connectionId`，将 `{instanceId}:{connectionId}` 写入有序集合 `notifications:presence:{userId}`。分数是在线记录的过期时间；默认 TTL 为 45 秒。BFF 随后从 Notifications API 回放持久化通知，暂存回放期间收到的实时消息；回放结束后每 15 秒刷新在线记录，连接关闭时删除该成员。
-    4. Delivery Worker 领取待投递通知，清理该用户已过期的在线成员。若仍有有效成员且尚未超过 SSE 尝试次数，Worker 提取 BFF 实例 ID，向对应频道发布通知。BFF 再按 `userId` 找到本进程的 SSE 连接并推送给浏览器；浏览器调用 ACK 接口后，通知变为 `DeliveredInApp`。
-    5. 没有有效在线记录时，Worker 直接转入 `SendingEmail`；SSE 发布后若 5 秒内未收到 ACK，则再次尝试，默认最多尝试两次 SSE，再通过 Resend 发送邮件。Redis 调用失败会按投递重试策略处理。Pub/Sub 不保存消息；浏览器重连时使用 `Last-Event-ID` 或 `afterSequence` 从 Notifications DB 回放遗漏通知。
+    1. **持久化与发布：**Products Service 在同一事务中提交商品操作和 `ProductOperationOutbox`。Outbox Dispatcher 将结果发布到 RabbitMQ。
+       - Notifications Consumer 校验消息，按 `NotificationId` 和 payload hash 幂等写入 Notifications DB，成功后确认 RabbitMQ 消息。
+    2. **建立 SSE 连接：**用户登录后，浏览器通过 `EventSource` 请求 `/api/notifications/stream`。
+       - BFF 注册本地 SSE 连接，异步连接 Redis 并订阅 `notifications:bff:{instanceId}`。每个 BFF 进程共用一个频道；`instanceId` 由实例名称与随机 UUID 组成。Redis 故障不会断开现有 SSE，也不阻止新连接建立及数据库回放。
+    3. **记录在线状态与回放：**Redis 可用后，BFF 将 `{instanceId}:{connectionId}` 写入 `notifications:presence:{userId}` 有序集合。分数为过期时间，默认 TTL 为 45 秒。
+       - BFF 在首次回放前最多等待 1 秒，让 Redis 订阅和本连接的在线记录就绪，随后进行一轮完整的未站内 ACK 回放，包含正在发送邮件和已邮件送达的通知，按 `OccurredAtUtc DESC, SequenceNumber DESC` 分页。分页游标固定本轮序号上界，回放期间暂存实时消息并按 `notificationId` 去重；不使用浏览器 `Last-Event-ID` 跳过通知。回放后每 15 秒刷新在线记录，连接关闭时删除该成员。Redis 恢复时重新订阅并恢复在线记录。
+    4. **实时投递：**Delivery Worker 领取通知并清理过期在线成员。若仍有有效成员且当前领取轮次未超过实时投递上限，Worker 向对应 BFF 实例频道发布通知。
+       - BFF 按 `userId` 找到本进程的 SSE 连接并推送；浏览器调用幂等 ACK 接口后记录 `InAppAcknowledgedAtUtc`。可重试状态变为 `DeliveredInApp`，邮件相关状态保留，发送中的邮件任务版本号和租约不受影响。
+    5. **离线与补偿：**Worker 从通知创建时起至少留出 20 秒等待站内 ACK；邮件发送开始前 ACK 落库会阻止邮件补偿。没有有效在线记录或 Redis 调用失败时，窗口结束后仍未 ACK 才可转入 `SendingEmail`，通过 Resend 发邮件。
+       - 同一条通知默认只有前两次 Worker 领取轮次可以尝试通过 Redis 向 BFF 实时发布。每次领取都会计数，即使当次没有在线记录或 Redis 调用失败，实际发布次数也可能是 0、1 或 2。发布成功后等待 5 秒 ACK，未收到才进入下一轮；该次数与 SSE 连接数量无关，也不包含 BFF 的数据库补拉。
+       - BFF 检测到 Redis 不可用时，每 5 秒按当前会话身份从 Notifications API 的 `/replay` 接口分页补拉未 ACK 通知，经原 SSE 推送给浏览器；恢复订阅和在线记录后完成最后一轮补拉。补拉与建连回放使用相同的降序游标协议，从所有未站内 ACK 记录起始处扫描。在 1 秒内就绪且回放期间没有断连时，建连只执行一轮初始化回放；一轮可包含多次分页请求，每页最多 100 条。等待超时仍建立 SSE，随后执行补偿扫描；回放期间或建连后发生断连时也保留补偿扫描。浏览器按 `notificationId` 去重并重试失败的 ACK。若只有 Notifications API 发布端故障而 BFF 的 Redis 连接正常，需等 SSE 重连时回放。
+
+通知列表负责历史展示，首屏仅加载 20 条且不会自动 ACK；SSE replay 负责恢复未站内确认的投递，断线重连时仍会执行。浏览器对两条流程的重叠通知按 `notificationId` 去重，并对 SSE 重复消息补发 ACK。
+
+Notifications API 的 `/replay` 首次请求只需 `limit`，后续以 `cursor` 参数传入响应中的 `nextCursor`；不再使用 `afterSequence` / `upToSequence`。更新时同步部署 Notifications API 和 Admin Web。开发阶段的通知数据库表、站内 ACK 字段和索引由初始化 SQL 直接创建；服务启动时仅检查数据库连接。
 
 **🔍 可观测性（Observability Stack）**
 
@@ -261,17 +323,33 @@
 
 Products Service 通过 Redis 缓存商品数据，详情键与全量列表键分别管理：
 
-- **读取**：按 ID 查询未命中时，从数据库读取并回填详情缓存；商品不存在时写入 `CacheOptions.NullValuePlaceholder` 负缓存。全量列表缓存采用逻辑过期，过期后由后台刷新。
-- **写入成功**：首次新增商品成功后清除列表缓存，幂等重放不重复清除；更新或删除成功后，立即清除该商品的详情缓存和全量列表缓存。仅更新成功时，按 `Redis:DelayedDeleteMs` 配置（默认约 2 秒）再次删除这两个键。
+- **读取：**按 ID 查询未命中时，从数据库读取并回填详情缓存；不存在时写入 `CacheOptions.NullValuePlaceholder` 负缓存。
+  - 全量列表缓存采用逻辑过期，过期后由后台刷新。
+- **Redis 故障时读取：**断连或缓存操作失败时，详情和全量列表直接从 PostgreSQL 读取，本次不回填缓存。
+  - 全量列表冷缓存等待分布式锁超过 5 秒时也直接回源。已有逻辑过期列表仍可立即返回，后台刷新失败会记录日志。
+- **Redis 命令超时：**Products 显式配置 `Redis:AsyncTimeout = 2000` 毫秒，`SyncTimeout` 保持 5000 毫秒；已检测到断线时，`BacklogPolicy.FailFast` 避免新命令排队等待恢复。异步超时也作用于缓存分布式锁底层的 Redis 命令，锁竞争等待和初次连接仍使用各自的配置。
+- **写入成功：**首次新增商品成功后清除列表缓存；首次更新或删除成功后，立即清除该商品的详情和全量列表缓存。三个写接口的幂等重放均不重复清除缓存，更新重放也不调度延迟删除。
+  - 详情和列表缓存并行删除，并等待两项尝试完成。仅更新成功时，按 `Redis:DelayedDeleteMs`（默认约 2 秒）再次并行删除这两个键。
 - **版本冲突导致更新或删除失败（409）**：尽力清除详情和列表缓存，再原样抛出异常。
-- **对象不存在导致更新或删除失败（404）**：始终尽力清除列表缓存；仅当详情键中存在商品数据，而非负缓存占位值时，额外清除详情键。普通 GET 的 404 和其他原因产生的 409 不适用这套失败写入失效规则。
+  - 两个键并行删除，各自捕获缓存异常；仅两项均成功时记录缓存失效成功。
+- **对象不存在导致更新或删除失败（404）：**始终尽力清除列表缓存；仅当详情键中存在商品数据，而非负缓存占位值时，额外清除详情键。
+  - 列表删除与详情处理并行；详情分支中的读取和条件删除仍按顺序执行，读取失败会记录日志。
+  - 普通 GET 的 404 和其他原因产生的 409 不适用这套失败写入失效规则。
 
-PostgreSQL 与 Redis 不共享事务。缓存删除失败只记录日志；并发读取也可能在删除后回填旧值，因此上述失效不保证写入后的读取立即看到最新数据。高并发下反复发生版本冲突，或大量不存在 ID 的写入请求，可能增加全量列表的缓存未命中。
+**缓存一致性与故障边界：**
+
+- **等待时间：**2 秒针对单条异步命令，超时检测可能略晚；两个并行删除主要等待较慢的一项。初次连接、锁竞争、数据库操作及 404 详情分支的连续命令可能增加耗时，不保证整个 API 在 2 秒内返回。
+- **写入后可见性：**PostgreSQL 与 Redis 不共享事务。缓存删除失败只记录日志；并发读取也可能在删除后回填旧值，因此不保证写入后的读取立即看到最新数据。
+- **Redis 恢复：**故障期间未删除的旧详情可能持续到缓存 TTL 到期；旧列表可能先按逻辑过期策略返回，再由后台刷新。
+- **负载：**回源会增加数据库负载；频繁的版本冲突或对不存在 ID 的写入也可能增加全量列表缓存未命中。
+- **健康检查：**Products 的就绪探针只要求数据库健康，完整依赖状态由 `/health` 报告；Admin Web 和 Gateway 的 Redis 依赖仍可能影响端到端访问。
 
 ### 后续改进（尚未实现）
 
-- **持久化缓存失效**：可将失效意图与 Product 更新写入同一个数据库事务，例如扩展现有 ProductOperations Outbox，再由后台任务重试 Redis 删除。这可提高失效最终完成的可靠性；后台任务执行前仍有读取旧缓存的窗口，不提供立即可见保证。
-- **版本失效（Version Invalidation）**：在同一数据库事务中更新 Product，并递增详情或列表缓存对应的数据库版本；读取缓存前从权威数据库校验已提交版本，版本不一致就回源读取最新数据。这可保证更新提交后开始的新读取看到最新值；代价是每次读取都要查询数据库版本，增加数据库负载。若版本只存于 Redis，则不能保证强一致性。
+- **持久化缓存失效：**将失效意图与 Product 更新写入同一个数据库事务，并新增独立的缓存失效 Outbox Table，由后台任务重试 Redis 删除。
+  - 可提高失效最终完成的可靠性；任务执行前仍可能读到旧缓存，不提供立即可见保证。
+- **版本失效（Version Invalidation）：**在同一数据库事务中更新 Product，并递增详情或列表缓存对应的数据库版本。读取缓存前从权威数据库校验已提交版本，不一致时回源读取最新数据。
+  - 可保证更新提交后开始的新读取看到最新值；代价是每次读取都要查询数据库版本。若版本只存于 Redis，则不能保证强一致性。
 
 ## 📁 项目结构
 
@@ -309,17 +387,55 @@ docker compose --env-file docker/dev/.env -f docker/dev/docker-compose.yml -f do
 
 `docker/dev/.env` 已被 Git 忽略，请勿提交真实密码或 Resend API Token。IdentityServer 本地开发端口为 `8485`。
 
-PostgreSQL 初始化 SQL 只创建逻辑数据库；Products 和 ProductOperations Outbox 表及索引由 EF Core Migration 管理。
+Products 的 PostgreSQL 初始化 SQL 只创建逻辑数据库；Products 和 ProductOperations Outbox 表及索引由 EF Core Migration 管理。
+
+### Access Token Revocation 配置
+
+**证明密钥**
+
+- Admin Web 使用 `AUTH_GATEWAY_PROOF_KEY_ID` 和 `AUTH_GATEWAY_PROOF_KEY`；网关配置相同的密钥版本和密钥。
+- 网关还需要 `Authentication__SessionFallback__PostgresConnectionString` 和 `Authentication__SessionFallback__PostgresPassword`。
+- 证明密钥独立于 `AUTH_SECRET`，至少 32 字节，以 Base64 编码。可在 PowerShell 中生成：
+
+```powershell
+[Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+```
+
+**Docker Compose**
+
+- **开发环境：**在 `docker/dev/.env` 中设置证明密钥与版本，示例见 [`docker/dev/.env.example`](docker/dev/.env.example)。Compose 将同一组值提供给 Admin Web 和网关。
+- **演示部署：**在 `docker/deploy/.env` 设置两个证明变量和 `GATEWAY_DB_PASSWORD`，并将 `GATEWAY_SESSION_FALLBACK_ENABLED` 设为 `true`。
+- **数据库权限：**网关账号 `gateway_auth_reader` 仅有数据库连接、`public` schema 使用和 `auth_refresh_tokens(id)` 列级读取权限。
+  - Compose 只在 PostgreSQL 数据卷首次初始化时运行 `configs/postgres/init` 中的 SQL；已有数据卷需手动执行 [`create-gateway-auth-reader.sql`](configs/postgres/init/create-gateway-auth-reader.sql)，或按计划重建。
+
+**AKS**
+
+- 各命名空间需要 `gateway-auth-secrets` Secret，包含 `proof-key-id`、`proof-key`、`postgres-connection-string`、`postgres-password`。
+- **Dev：**基础设施管道从 Key Vault 的 `gateway-proof-key` 和 `gateway-db-password` 创建 Secret，并对既有数据库执行只读角色 SQL。
+- **其他命名空间：**通过各自的密钥管理流程创建 Secret、执行上述 SQL，再部署应用。连接字符串指向该命名空间可访问的 PostgreSQL，并使用网关只读账号。
+- 仓库内的 AKS Redis Deployment 仅覆盖 dev。QA、UAT、staging 和 prod 若使用外部 Redis，应在现有共享实例上配置 AOF `everysec` 与持久存储，并保留 `allkeys-lru` 及原有服务地址。
 
 ### Products 数据库迁移与种子数据
 
-Products API 通过 `MigrateDatabaseAsync()` 先调用 EF Core `Database.MigrateAsync()` 应用所有待执行迁移，再从 Infrastructure 程序集内嵌的 `SeedData/products.json` 导入示例产品。迁移或种子过程失败会记录 Critical 日志并继续抛出异常，因此 API 不会在数据库准备失败时启动。
+`MigrateDatabaseAsync()` 按以下顺序准备 Products 数据库：
 
-种子逻辑校验 JSON 数据，按 `ProductId` 查询数据库，只插入缺少的产品；已有产品不会被种子文件覆盖或更新。保存通过一次 `SaveChangesAsync()` 完成。多实例启动时，种子程序使用 Redis 分布式锁 `lock:products-seed-data` 串行执行，并在拿到锁后重新检查已有 ID；锁等待上限为一分钟。运行迁移/种子的 Job 因此同时需要 PostgreSQL 和 Redis 配置与连接。
+1. 调用 EF Core `Database.MigrateAsync()` 应用待执行迁移。
+2. 从 Infrastructure 程序集内嵌的 `SeedData/products.json` 导入示例产品。
 
-本地直接运行和 Docker Compose 未设置 `ProductsMigration:RunOnStartup` 时默认在 API 启动阶段执行上述流程。迁移 Job 使用相同 API 镜像及 `--migrate` 参数，完成迁移和种子数据后正常退出，不启动 HTTP 服务。AKS 的五套 Products Deployment 显式设置 `ProductsMigration__RunOnStartup=false`，所以扩容和容器重启不会重复运行初始化；Azure Pipelines 为每次发布创建独立 Job，等待 Job 完成后才部署 API。Job 失败或等待超时会中止该次发布，并收集 Job 状态和日志。
+迁移或种子过程失败会记录 Critical 日志并抛出异常，API 不会在数据库准备失败时启动。种子逻辑还具有以下边界：
 
-手动部署 AKS 时，先用目标 API 版本的镜像运行 `aks/manifests/shared/backend/products-database-migration.yaml` 对应的 Job，确认成功后再更新 Deployment。Azure DevOps 的 dev、qa、uat、staging、prod 环境需分别启用 **Exclusive lock** 检查；流水线的 `lockBehavior: sequential` 依赖此环境检查来串行化同环境发布。
+- 校验 JSON 数据，并在一个数据库事务内按 `ProductId` 使用 `INSERT ... ON CONFLICT DO NOTHING`。
+- 已有产品不会被覆盖；Job 重试或偶发重复执行不会重复插入，其他唯一键冲突仍会报错。
+- 迁移/种子 Job 只需要 PostgreSQL。本地和 Docker Compose 的启动迁移按单实例运行，多实例部署使用独立 Job。
+
+**运行方式**
+
+- **本地与 Docker Compose：**未设置 `ProductsMigration:RunOnStartup` 时，默认在 API 启动阶段执行迁移和种子数据。
+- **迁移 Job：**使用相同 API 镜像及 `--migrate` 参数，完成后正常退出，不启动 HTTP 服务。
+- **AKS：**五套 Products Deployment 均设置 `ProductsMigration__RunOnStartup=false`，扩容或容器重启不会重复初始化。
+  - Azure Pipelines 每次发布创建独立 Job，等待成功后再部署 API；Job 失败或等待超时会中止发布，并收集状态和日志。
+- **手动部署：**用目标 API 镜像运行 `aks/manifests/shared/backend/products-database-migration.yaml` 对应的 Job，确认成功后再更新 Deployment。
+  - dev、qa、uat、staging、prod 的 Azure DevOps 环境需分别启用 **Exclusive lock** 检查；`lockBehavior: sequential` 依赖这些检查串行化同环境发布。
 
 **📦 演示部署环境**（拉取预构建镜像）：
 
@@ -329,7 +445,12 @@ if (-not (Test-Path docker/deploy/.env)) { Copy-Item docker/deploy/.env.example 
 docker compose --env-file docker/deploy/.env -f docker/deploy/docker-compose.yml up -d
 ```
 
-默认拉取 `latest`。如需固定到某次 CI 产物，请在 `docker/deploy/.env` 中将 `PRODUCTS_IMAGE_TAG`、`APIGATEWAY_IMAGE_TAG`、`IDENTITYSERVER_IMAGE_TAG`、`NOTIFICATIONS_IMAGE_TAG`、`ADMINWEB_IMAGE_TAG` 改为对应的 `sha-<commit>` tag，然后重新启动：
+默认拉取 `latest`。如需固定到某次 CI 产物，请在 `docker/deploy/.env` 中设置对应的 `sha-<commit>` tag：
+
+- 后端：`PRODUCTS_IMAGE_TAG`、`APIGATEWAY_IMAGE_TAG`、`IDENTITYSERVER_IMAGE_TAG`、`NOTIFICATIONS_IMAGE_TAG`
+- 前端：`ADMINWEB_IMAGE_TAG`
+
+设置后重新启动：
 
 ```powershell
 docker compose --env-file docker/deploy/.env -f docker/deploy/docker-compose.yml up -d
@@ -360,9 +481,12 @@ docker compose --env-file docker/deploy/.env -f docker/deploy/docker-compose.yml
 
 ### RabbitMQ quorum 队列与死信重放
 
-`notifications.products.operations` 由 Notifications 消费者声明为 quorum 队列，同时设置 `x-message-ttl = 10000`（10 秒）与 `x-delivery-limit = 3`，并配置死信路由。死信队列没有 TTL 或长度上限。TTL 只限制消息在主队列中的等待时间，过期消息仍可人工重放。调整这些队列声明参数时，需要重新创建主队列。
+**队列与告警**
 
-Prometheus 的 RabbitMQ 规则只对通知主队列检查待消费消息数和消费者数；`notifications.products.operations.dead-letter` 有消息持续 1 分钟时触发严重告警，经 Alertmanager 发送到 Slack。死信队列平时没有常驻消费者，因此不应用“无消费者”告警。
+- Notifications 消费者声明 `notifications.products.operations` 为 quorum 队列，设置 `x-message-ttl = 10000`（10 秒）、`x-delivery-limit = 3` 和死信路由。调整声明参数时需重新创建主队列。
+- 死信队列没有 TTL 或长度上限。TTL 只限制消息在主队列中的等待时间，过期消息仍可人工重放。
+- Prometheus 只对通知主队列检查待消费消息数和消费者数。
+- `notifications.products.operations.dead-letter` 持续有消息 1 分钟时，经 Alertmanager 向 Slack 发送严重告警。死信队列平时没有常驻消费者，因此不应用“无消费者”告警。
 
 本地启动时，Notifications 消费者会自动声明主队列及死信路由，无需单独应用 RabbitMQ policy：
 
@@ -370,7 +494,12 @@ Prometheus 的 RabbitMQ 规则只对通知主队列检查待消费消息数和�
 docker compose --env-file docker/dev/.env -f docker/dev/docker-compose.yml -f docker/dev/docker-compose.override.yml up -d
 ```
 
-Notifications 流水线另外构建 `notifications-dlq-replay:<BuildId>` 镜像，但不会自动运行重放。运维人员确认消费者已恢复并检查 DLQ 后，在 Azure DevOps 注册一次 [Notifications DLQ Replay 流水线](aks/pipelines/azure-pipelines-notifications-dlq-replay.yaml)；之后每次从目标环境对应的分支手动点击 **Run pipeline**，选择 `targetEnvironment` 即可。重放流水线通过 Azure DevOps API 查找 `NotificationsMicroservice` 在该分支最近一次成功运行的 `BuildId`，用于选择重放镜像；若没有成功运行则停止。随后流水线使用目标环境的 Kubernetes Service Connection 创建一次性 Job，等待运行结束，并在流水线日志中显示重放结果。该流水线设置了 `trigger: none`，不会随代码提交自动重放。
+**AKS 人工重放**
+
+1. Notifications 流水线构建 `notifications-dlq-replay:<BuildId>` 镜像，但不自动运行重放。先确认消费者已恢复，并检查 DLQ。
+2. 在 Azure DevOps 注册一次 [Notifications DLQ Replay 流水线](aks/pipelines/azure-pipelines-notifications-dlq-replay.yaml)。之后从目标环境对应的分支手动点击 **Run pipeline**，选择 `targetEnvironment`。
+3. 重放流水线通过 Azure DevOps API 查找 `NotificationsMicroservice` 在该分支最近一次成功运行的 `BuildId`，用于选择镜像；若没有成功运行则停止。
+4. 流水线使用目标环境的 Kubernetes Service Connection 创建一次性 Job，等待结束，并在日志中显示结果。`trigger: none` 确保代码提交不会自动触发重放。
 
 本地调试时，可在本机 RabbitMQ 启动后直接运行控制台程序。连接和限量参数位于 `NotificationsMicroservice.DlqReplay/appsettings.json`，也可通过环境变量覆盖：
 
@@ -378,7 +507,11 @@ Notifications 流水线另外构建 `notifications-dlq-replay:<BuildId>` 镜像�
 dotnet run --project src/backend/Services/Notifications/NotificationsMicroservice.DlqReplay/NotificationsMicroservice.DlqReplay.csproj
 ```
 
-Job 从 `notifications-microservice-secrets` 读取 RabbitMQ 连接信息。工具默认每次最多检查 10 条、运行 60 秒；仅自动重放死信原因是 `expired` 或 `delivery_limit` 的消息，`rejected` 等原因留在 DLQ 等待排查。同一 `MessageId` 在一次运行中最多重放一次，自定义 `manual-replay-count` header 限制最多 3 轮。发布确认后才 ACK 原死信；如果发布确认和 ACK 之间故障，可能再次发布，Notification 数据库按 `NotificationId` 和原始 payload 去重。
+**Job 限制与幂等性**
+
+- Job 从 `notifications-microservice-secrets` 读取 RabbitMQ 连接信息。默认每次最多检查 10 条、运行 60 秒。
+- 只自动重放死信原因是 `expired` 或 `delivery_limit` 的消息；`rejected` 等原因留在 DLQ 等待排查。同一 `MessageId` 每次运行最多重放一次，`manual-replay-count` header 限制最多 3 轮。
+- 发布确认后才 ACK 原死信。若发布确认与 ACK 之间发生故障，消息可能再次发布；Notification 数据库按 `NotificationId` 和原始 payload 去重。
 
 ## ❓ 常见问题
 
@@ -430,6 +563,8 @@ Job 从 `notifications-microservice-secrets` 读取 RabbitMQ 连接信息。工�
 ```powershell
 dotnet build MicroservicesDemo.sln
 dotnet test tests/ProductsServiceUnitTests/ProductsServiceUnitTests.csproj
+# 需要 Docker Desktop；自动创建并清理隔离的 PostgreSQL/Redis 容器
+dotnet test tests/ProductsServiceIntegrationTests/ProductsServiceIntegrationTests.csproj
 dotnet test tests/IdentityServerUnitTests/IdentityServerUnitTests.csproj
 Set-Location src/frontend/admin-web
 npm ci
@@ -438,7 +573,10 @@ npm test
 npm run build
 ```
 
-后端测试覆盖产品 CRUD、消息幂等、API Controller、异常处理中间件、AutoMapper 映射、Redis 缓存装饰器与 OpenTelemetry 装饰器，以及 IdentityServer 的登录、注册、邮箱确认与重发流程；前端使用 ESLint、Vitest 和 Next.js production build 验证。
+测试覆盖范围：
+
+- **后端：**产品 CRUD、三个写接口的 API 幂等与 Redis/数据库回退、真实 PostgreSQL/Redis 并发和事务回滚集成测试、消息幂等、API Controller、异常处理中间件、AutoMapper 映射、Redis 缓存装饰器与 OpenTelemetry 装饰器，以及 IdentityServer 的登录、注册、邮箱确认与重发流程。
+- **前端：**使用 ESLint、Vitest 和 Next.js production build 验证。
 
 ## 💪 工程能力
 
@@ -452,9 +590,13 @@ npm run build
 ## 🎯 后续可扩展方向
 
 - **Product 详情页面**：在 Admin Web 增加按 ID 查询的商品详情页，展示商品信息，并复用现有的按 ID 查询接口及详情缓存。
-- **Products Pod 自动伸缩（HPA）**：后续可为 dev、qa、uat、staging、prod 环境的 Products Deployment 配置 Horizontal Pod Autoscaler，根据 CPU 利用率自动调整 Pod 数量。启用前需确保各容器设置合理的 CPU requests，且 AKS 提供资源指标 API；实际扩容还受节点可用容量和 PostgreSQL 连接及处理能力限制。增加副本会消耗更多集群资源并提高数据库并发负载，因此需结合负载测试设定伸缩范围。当前尚未部署 HPA。
+- **Products Pod 自动伸缩（HPA）：**后续可为 dev、qa、uat、staging、prod 的 Products Deployment 配置 Horizontal Pod Autoscaler，根据 CPU 利用率调整副本数。当前尚未部署 HPA。
+  - **启用条件：**各容器设置合理的 CPU requests，且 AKS 提供资源指标 API；扩容还受节点容量及 PostgreSQL 连接和处理能力限制。
+  - **容量权衡：**更多副本会消耗集群资源并提高数据库并发负载，需结合负载测试设定伸缩范围。
 - 引入 Saga 模式处理跨服务分布式一致性问题
-- 增加可选的 TOTP 多因素认证：在 IdentityServer 中提供账户安全设置页，允许普通用户绑定 Google Authenticator 或 Microsoft Authenticator 等验证器 App；登录时在密码验证后校验 6 位动态验证码，并提供一次性恢复码、重置验证器和安全审计记录。当前 Demo 暂不强制启用 2FA；若面向管理员或高敏感操作，可将 TOTP 调整为强制策略。邮箱验证码可作为恢复或过渡方案，但不作为最终的强认证方式
+- **可选的 TOTP 多因素认证：**在 IdentityServer 提供账户安全设置页，允许用户绑定 Google Authenticator 或 Microsoft Authenticator 等验证器 App。登录时在密码验证后校验 6 位动态验证码。
+  - 提供一次性恢复码、验证器重置和安全审计记录。
+  - 当前 Demo 不强制启用 2FA；管理员或高敏感操作可要求 TOTP。邮箱验证码可用于恢复或过渡，不作为最终的强认证方式。
 
 ## 🖼️ 截图与证据说明
 
@@ -534,17 +676,29 @@ AKS 应用路由 Namespace 中的 Nginx Pod 处于 `Running` 和 Ready 状态，
 
 ### 🔭 链路追踪、指标与日志
 
-**看点：** Jaeger 截图证明 OIDC 登录、令牌签发以及业务请求已经接入分布式追踪，并展示请求穿过网关、API、Redis 及 RabbitMQ 相关 Span；Grafana 与日志跳转链路证明指标和日志可围绕同一个分布式 Trace 上下文联动排查。
+**看点：**
+
+- Jaeger 展示 OIDC 登录、令牌签发和业务请求的追踪，以及经过网关、API、Redis、RabbitMQ 的相关 Span。
+- Grafana 与日志跳转链路展示如何围绕同一个分布式 Trace 排查指标和日志。
 
 #### 🔐 IdentityServer OIDC 登录流程
 
-该截图展示一次登录操作产生的四段认证 Trace：`POST /Account/Login` 验证用户并建立登录会话，授权回调继续原始 Authorize 请求，Discovery 请求获取 OIDC 元数据，最后由 BFF 调用 Token Endpoint。浏览器前端通道与 BFF 后端通道经过重定向和独立 HTTP 请求，因此在 Jaeger 中显示为多条 Trace。
+该截图展示一次登录操作产生的四段认证 Trace：
+
+1. `POST /Account/Login` 验证用户并建立登录会话。
+2. 授权回调继续原始 Authorize 请求。
+3. Discovery 请求获取 OIDC 元数据。
+4. BFF 调用 Token Endpoint。
+
+浏览器前端通道与 BFF 后端通道经过重定向和独立 HTTP 请求，因此在 Jaeger 中显示为多条 Trace。
 
 ![IdentityServer OIDC Login Flow](images/JaegerIdentityServerLoginFlow.png)
 
 #### 🎫 Authorization Code Token Exchange
 
-Token Endpoint Trace 展示 BFF 使用一次性 Authorization Code 换取 Token 的内部过程：IdentityServer 读取并删除授权码、验证 Client 与 Scope，随后创建 Access Token、Refresh Token 和 Identity Token，并使用签名凭据生成 JWT。授权码兑换后立即删除，可防止同一授权码被重复使用。
+Token Endpoint Trace 展示 BFF 使用一次性 Authorization Code 换取 Token 的过程。IdentityServer 读取并删除授权码，验证 Client 与 Scope，再创建 Access Token、Refresh Token 和 Identity Token，并使用签名凭据生成 JWT。
+
+授权码兑换后立即删除，可防止同一授权码被重复使用。
 
 <details>
 <summary>展开查看完整 Token Exchange Trace</summary>
@@ -605,7 +759,9 @@ Token Endpoint Trace 展示 BFF 使用一次性 Authorization Code 换取 Token 
 
 ## 🤝 参与贡献
 
-欢迎贡献！提交前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，了解分支策略、提交信息格式、代码质量要求与 PR 指南。修改文档时，请同步更新 [英文 README](README.en.md)。
+欢迎贡献！提交前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，了解分支策略、提交信息格式、代码质量要求与 PR 指南。
+
+修改文档时，请同步更新 [英文 README](README.en.md)。
 
 ## 📄 许可证
 

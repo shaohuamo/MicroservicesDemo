@@ -9,6 +9,6 @@ public sealed class NotificationsGetterService(INotificationGetRepository reposi
     public Task<NotificationHistoryPage> GetHistoryAsync(string userId, long? beforeSequence, int limit, int retentionDays, CancellationToken cancellationToken) =>
         repository.GetHistoryAsync(userId, beforeSequence, limit, retentionDays, cancellationToken);
 
-    public Task<NotificationReplayPage> GetReplayAsync(string userId, long afterSequence, long? upToSequence, int limit, CancellationToken cancellationToken) =>
-        repository.GetReplayAsync(userId, afterSequence, upToSequence, limit, cancellationToken);
+    public Task<NotificationReplayPage> GetReplayAsync(string userId, NotificationReplayCursor? cursor, int limit, CancellationToken cancellationToken) =>
+        repository.GetReplayAsync(userId, cursor, limit, cancellationToken);
 }

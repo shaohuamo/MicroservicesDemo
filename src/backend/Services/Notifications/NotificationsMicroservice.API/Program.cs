@@ -31,7 +31,7 @@ builder.Services.AddHealthChecks()
     .AddCheck("self", () => HealthCheckResult.Healthy(), tags: ["live"])
     .AddCheck<NotificationDatabaseHealthCheck>("notification_database", tags: ["ready"], timeout: TimeSpan.FromSeconds(5))
     .AddCheck<ProductOperationConsumerHealthCheck>("product_operation_consumer", tags: ["ready"])
-    .AddCheck<NotificationRedisHealthCheck>("notification_redis", tags: ["ready"], timeout: TimeSpan.FromSeconds(5));
+    .AddCheck<NotificationRedisHealthCheck>("notification_redis", timeout: TimeSpan.FromSeconds(5));
 
 builder.Services.AddObservability();
 

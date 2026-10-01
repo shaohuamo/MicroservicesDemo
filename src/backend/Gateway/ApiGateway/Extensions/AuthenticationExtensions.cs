@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using StackExchange.Redis;
+using Microsoft.IdentityModel.Tokens;
+using ApiGateway.Revocation;
 
 namespace ApiGateway.Extensions;
 
@@ -15,6 +16,10 @@ public static class AuthenticationExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
+        services.AddSingleton(TimeProvider.System);
+        services.AddSingleton<SessionProofVerifier>();
+        services.AddSingleton<IRedisRevocationGuard, RedisRevocationGuard>();
+        services.AddSingleton<AccessTokenRevocationValidator>();
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options =>
             {
@@ -23,47 +28,35 @@ public static class AuthenticationExtensions
                 options.RequireHttpsMetadata = configuration.GetValue(
                     "Authentication:RequireHttpsMetadata", false);
                 options.MapInboundClaims = false;
+                options.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ClockSkew = TimeSpan.FromSeconds(30)
+                };
                 options.Events = new JwtBearerEvents
                 {
                     OnTokenValidated = async context =>
                     {
-                        string? jti = context.Principal?.FindFirst("jti")?.Value;
-
-                        if (string.IsNullOrWhiteSpace(jti))
+                        var authorization = context.Request.Headers.Authorization.ToString();
+                        var accessToken = authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+                            ? authorization[7..] : string.Empty;
+                        var result = await context.HttpContext.RequestServices
+                            .GetRequiredService<AccessTokenRevocationValidator>()
+                            .ValidateAsync(context.HttpContext,
+                                context.Principal?.FindFirst("jti")?.Value,
+                                accessToken);
+                        if (result == RevocationResult.Unavailable)
+                            context.HttpContext.Items[AccessTokenRevocationValidator.UnavailableItem] = true;
+                        if (result != RevocationResult.Allowed)
+                            context.Fail(result == RevocationResult.Unavailable ? "Session store is unavailable." : "Access token revoked or session proof invalid.");
+                    },
+                    OnChallenge = context =>
+                    {
+                        if (context.HttpContext.Items.ContainsKey(AccessTokenRevocationValidator.UnavailableItem))
                         {
-                            return;
+                            context.HandleResponse();
+                            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
                         }
-
-                        var redis = context.HttpContext.RequestServices
-                            .GetService<IConnectionMultiplexer>();
-                        if (redis is null)
-                        {
-                            return;
-                        }
-
-                        try
-                        {
-                            string denylistPrefix = context.HttpContext.RequestServices
-                                .GetRequiredService<IConfiguration>()["Authentication:AccessTokenDenylistPrefix"]
-                                ?? "admin-web:access-token-denylist";
-                            bool isDenied = await redis.GetDatabase()
-                                .KeyExistsAsync($"{denylistPrefix}:{jti}");
-
-                            if (isDenied)
-                            {
-                                context.Fail("Access token has been revoked.");
-                            }
-                        }
-                        catch
-                        {
-                            bool failClosed = context.HttpContext.RequestServices
-                                .GetRequiredService<IConfiguration>()
-                                .GetValue("Authentication:DenylistFailClosed", true);
-                            if (failClosed)
-                            {
-                                context.Fail("Access token denylist is unavailable.");
-                            }
-                        }
+                        return Task.CompletedTask;
                     }
                 };
 

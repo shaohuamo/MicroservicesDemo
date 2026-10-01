@@ -1,8 +1,9 @@
-﻿using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ProductsMicroservice.Core.CacheKeys;
 using ProductsMicroservice.Core.Domain.Exceptions;
+using ProductsMicroservice.Core.DTO;
 using ProductsMicroservice.Core.ServiceContracts;
 using ProductsMicroservice.Infrastructure.Options;
 using System;
@@ -33,16 +34,17 @@ namespace ProductsMicroservice.Infrastructure.Decorators.Caching
             _logger = logger;
         }
 
-        public async Task DeleteProductAsync(Guid productId, int expectedVersion)
+        public async Task<ProductDeleteResult> DeleteProductAsync(Guid productId, int expectedVersion, Guid idempotencyKey)
         {
             if (productId == Guid.Empty) throw new ArgumentException("ProductId cannot be empty", nameof(productId));
 
             string cacheKey = ProductCacheKeys.GetDetailsKey(productId);
 
+            ProductDeleteResult result;
             // call the inner service to delete the product
             try
             {
-                await _inner.DeleteProductAsync(productId, expectedVersion);
+                result = await _inner.DeleteProductAsync(productId, expectedVersion, idempotencyKey);
             }
             catch (ProductConcurrencyException)
             {
@@ -55,8 +57,11 @@ namespace ProductsMicroservice.Infrastructure.Decorators.Caching
                 throw;
             }
 
+            if (result.IsReplay) return result;
+
             // Remove cache after a successful delete.
             await InvalidateCacheAsync(cacheKey, productId);
+            return result;
         }
 
         private async Task InvalidateAfterNotFoundAsync(string cacheKey, Guid productId)
@@ -64,24 +69,10 @@ namespace ProductsMicroservice.Infrastructure.Decorators.Caching
             var activity = Activity.Current;
             activity?.AddEvent(new("Cache Invalidation Start"));
 
-            bool listRemoved = await TryRemoveAsync(ProductCacheKeys.AllProductsKey, activity);
-            bool detailLookupSucceeded = false;
-            bool removeDetail = false;
-            try
-            {
-                string? cachedDetail = await _cache.GetStringAsync(cacheKey);
-                detailLookupSucceeded = true;
-                removeDetail = cachedDetail is not null &&
-                    cachedDetail != _cacheOptions.NullValuePlaceholder;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Cache lookup failed for {CacheKey}", cacheKey);
-                activity?.AddException(ex);
-            }
-
-            bool detailRemoved = !removeDetail || await TryRemoveAsync(cacheKey, activity);
-            bool invalidated = detailLookupSucceeded && detailRemoved && listRemoved;
+            bool[] results = await Task.WhenAll(
+                TryRemoveAsync(ProductCacheKeys.AllProductsKey, activity),
+                TryRemovePositiveDetailAsync(cacheKey, activity));
+            bool invalidated = results.All(removed => removed);
             activity?.SetTag("cache.invalidated", invalidated);
 
             if (invalidated)
@@ -96,13 +87,30 @@ namespace ProductsMicroservice.Infrastructure.Decorators.Caching
 
             activity?.AddEvent(new("Cache Invalidation Start"));
 
-            bool detailRemoved = await TryRemoveAsync(cacheKey, activity);
-            bool listRemoved = await TryRemoveAsync(ProductCacheKeys.AllProductsKey, activity);
-            bool invalidated = detailRemoved && listRemoved;
+            bool[] results = await Task.WhenAll(
+                TryRemoveAsync(cacheKey, activity),
+                TryRemoveAsync(ProductCacheKeys.AllProductsKey, activity));
+            bool invalidated = results.All(removed => removed);
             activity?.SetTag("cache.invalidated", invalidated);
             if (invalidated)
             {
                 _logger.LogInformation("Cache invalidated for ProductId: {ProductId}", productId);
+            }
+        }
+
+        private async Task<bool> TryRemovePositiveDetailAsync(string cacheKey, Activity? activity)
+        {
+            try
+            {
+                string? cachedDetail = await _cache.GetStringAsync(cacheKey);
+                return cachedDetail is null || cachedDetail == _cacheOptions.NullValuePlaceholder ||
+                    await TryRemoveAsync(cacheKey, activity);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Cache lookup failed for {CacheKey}", cacheKey);
+                activity?.AddException(ex);
+                return false;
             }
         }
 

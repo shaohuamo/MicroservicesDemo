@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import axios from "axios";
+import { useProductOperationKey } from "@/hooks/use-product-operation-key";
 import type { ProductResponse, ProductAddRequest, ProductUpdateRequest } from "@/types/product";
 import { useAddProduct, useUpdateProduct } from "@/hooks/use-products";
 import { useT } from "@/lib/i18n/provider";
@@ -33,7 +33,7 @@ export function ProductFormDialog({
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [refreshOnClose, setRefreshOnClose] = useState(false);
-  const addOperationRef = useRef<{ key: string; fingerprint: string } | null>(null);
+  const operationKey = useProductOperationKey();
   const submitInFlightRef = useRef(false);
 
   function validate(): boolean {
@@ -71,35 +71,19 @@ export function ProductFormDialog({
           quantityInStock: parseInt(quantityInStock, 10),
           version: product!.version,
         };
-        await updateMutation.mutateAsync(request);
+        await updateMutation.mutateAsync({ request, idempotencyKey: operationKey.getKey(request) });
       } else {
         const request: ProductAddRequest = {
           displayName: displayName.trim(),
           unitPrice: parseFloat(unitPrice),
           quantityInStock: parseInt(quantityInStock, 10),
         };
-        const fingerprint = JSON.stringify(request);
-        if (addOperationRef.current?.fingerprint !== fingerprint) {
-          addOperationRef.current = {
-            key: crypto.randomUUID(),
-            fingerprint,
-          };
-        }
-        await addMutation.mutateAsync({
-          request,
-          idempotencyKey: addOperationRef.current.key,
-        });
-        addOperationRef.current = null;
+        await addMutation.mutateAsync({ request, idempotencyKey: operationKey.getKey(request) });
       }
       handleOpenChange(false, true);
     } catch (error) {
       const errorCode = getApiErrorCode(error);
-      if (!isEditing && axios.isAxiosError(error)) {
-        const status = error.response?.status;
-        if (status !== undefined && status >= 400 && status < 500) {
-          addOperationRef.current = null;
-        }
-      }
+      operationKey.handleError(error);
       if (isEditing && (errorCode === "product.not_found" || errorCode === "product.concurrency_conflict")) {
         setRefreshOnClose(true);
       }
@@ -109,9 +93,8 @@ export function ProductFormDialog({
   }
 
   function handleOpenChange(nextOpen: boolean, submittedSuccessfully = false) {
-    if (!nextOpen && !isEditing) {
-      addOperationRef.current = null;
-      submitInFlightRef.current = false;
+    if (!nextOpen) {
+      operationKey.reset();
       if (!submittedSuccessfully) {
         void queryClient.invalidateQueries({ queryKey: ["products"] });
       }

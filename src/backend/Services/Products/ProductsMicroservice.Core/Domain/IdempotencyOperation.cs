@@ -2,5 +2,7 @@ namespace ProductsMicroservice.Core.Domain;
 
 public enum IdempotencyOperation
 {
-    AddProduct
+    AddProduct,
+    UpdateProduct,
+    DeleteProduct
 }

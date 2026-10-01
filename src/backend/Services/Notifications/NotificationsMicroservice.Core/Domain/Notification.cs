@@ -28,6 +28,7 @@ public sealed class Notification
     public long Version { get; init; }
     public DateTimeOffset CreatedAtUtc { get; init; }
     public DateTimeOffset? DeliveredAtUtc { get; init; }
+    public DateTimeOffset? InAppAcknowledgedAtUtc { get; init; }
     public DateTimeOffset? ReadAtUtc { get; init; }
     public string? EmailProviderMessageId { get; init; }
 }

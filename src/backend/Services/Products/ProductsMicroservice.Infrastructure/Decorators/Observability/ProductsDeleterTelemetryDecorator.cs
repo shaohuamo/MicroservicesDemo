@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using ProductsMicroservice.Core.Diagnostics;
+using ProductsMicroservice.Core.DTO;
+using ProductsMicroservice.Core.Domain.Exceptions;
 using ProductsMicroservice.Core.ServiceContracts;
 
 namespace ProductsMicroservice.Infrastructure.Decorators.Observability;
@@ -18,7 +20,7 @@ public class ProductsDeleterTelemetryDecorator : IProductsDeleterService
         _logger = logger;
     }
 
-    public async Task DeleteProductAsync(Guid productId, int expectedVersion)
+    public async Task<ProductDeleteResult> DeleteProductAsync(Guid productId, int expectedVersion, Guid idempotencyKey)
     {
         if (productId == Guid.Empty)
         {
@@ -27,6 +29,8 @@ public class ProductsDeleterTelemetryDecorator : IProductsDeleterService
 
         var activity = Activity.Current;
         var stopwatch = Stopwatch.StartNew();
+        activity?.SetTag("idempotency.key", idempotencyKey.ToString("D"));
+        activity?.SetTag("idempotency.operation", "DeleteProduct");
 
         // Trace Instrumentation
         activity?.AddEvent(new("Remove Product By ProductId"));
@@ -37,26 +41,35 @@ public class ProductsDeleterTelemetryDecorator : IProductsDeleterService
             try
             {
                 _logger.LogInformation("Product deletion started");
-                await _inner.DeleteProductAsync(productId, expectedVersion);
+                ProductDeleteResult result = await _inner.DeleteProductAsync(productId, expectedVersion, idempotencyKey);
                 stopwatch.Stop();
 
                 // Metric Instrumentation
                 DiagnosticsConfig.DeleteProductHistogram.Record(stopwatch.Elapsed.TotalSeconds);
-                DiagnosticsConfig.ProductsCounter.Add(-1,
+                if (!result.IsReplay) DiagnosticsConfig.ProductsCounter.Add(-1,
                     new KeyValuePair<string, object?>("product.id", productId),
                     new("status", "success"));
 
                 // Trace Instrumentation
-                activity?.SetTag("db.result", "success");
+                activity?.SetTag("product.deleted", !result.IsReplay);
                 activity?.SetTag("product.operation.committed", true);
+                activity?.SetTag("idempotency.outcome", result.IsReplay ? "replayed" : "deleted");
+                activity?.SetTag("idempotency.replayed", result.IsReplay);
+                activity?.SetTag("idempotency.source", result.Source.ToString().ToLowerInvariant());
                 activity?.AddEvent(new("Product Deletion Finished"));
                 _logger.LogInformation(
-                    "Product and its outbox notification committed in {ElapsedMs} ms",
-                    stopwatch.Elapsed.TotalMilliseconds);
+                    "Product operation {Outcome} in {ElapsedMs} ms",
+                    result.IsReplay ? "replayed" : "committed", stopwatch.Elapsed.TotalMilliseconds);
+                return result;
             }
             catch (Exception ex)
             {
                 stopwatch.Stop();
+                if (ex is IdempotencyPayloadConflictException)
+                {
+                    activity?.SetTag("idempotency.outcome", "payload_conflict");
+                    activity?.SetTag("idempotency.replayed", false);
+                }
                 _logger.LogError(ex, "Uncaught error during product deletion for {ProductId}", productId);
                 // Trace Instrumentation
                 activity?.SetStatus(ActivityStatusCode.Error, ex.Message);

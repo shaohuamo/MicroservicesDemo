@@ -28,23 +28,23 @@ internal sealed class NotificationGetRepository(
         return new NotificationHistoryPage(items, hasMore && items.Count > 0 ? items[^1].SequenceNumber : null, unreadCount, watermark);
     }
 
-    /// <summary>
-    /// Returns pending or retryable notifications after a sequence number up to a replay watermark.
-    /// </summary>
-    /// <returns>Returns a replay page containing replayable notification items, the replay watermark, and the next-page sequence when more items exist.</returns>
-    public async Task<NotificationReplayPage> GetReplayAsync(string userId, long afterSequence, long? upToSequence, int limit, CancellationToken cancellationToken)
+    /// <summary>Returns unacknowledged in-app notifications, newest operation first.</summary>
+    public async Task<NotificationReplayPage> GetReplayAsync(string userId, NotificationReplayCursor? cursor, int limit, CancellationToken cancellationToken)
     {
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
-        // Select_Notification_003 obtains the current user watermark when the caller did not provide one.
-        var watermark = upToSequence ?? await connection.ExecuteScalarAsync<long>(new CommandDefinition(
-            sqlProvider.Get("Select_Notification_003"),
-            new { UserId = userId }, cancellationToken: cancellationToken));
-        // Select_Notification_004 reads the replayable notification rows within the sequence range.
-        var rows = (await connection.QueryAsync<NotificationItemRow>(new CommandDefinition(sqlProvider.Get("Select_Notification_004"), new { UserId = userId, AfterSequence = afterSequence, Watermark = watermark, Take = limit + 1 }, cancellationToken: cancellationToken))).ToList();
+        var watermark = cursor?.Watermark ?? await connection.ExecuteScalarAsync<long>(new CommandDefinition(
+            sqlProvider.Get("Select_Notification_003"), new { UserId = userId }, cancellationToken: cancellationToken));
+        var rows = (await connection.QueryAsync<NotificationItemRow>(new CommandDefinition(
+            sqlProvider.Get("Select_Notification_004"),
+            new { UserId = userId, Watermark = watermark, BeforeOccurredAtUtc = cursor?.BeforeOccurredAtUtc, BeforeSequence = cursor?.BeforeSequence, Take = limit + 1 },
+            cancellationToken: cancellationToken))).ToList();
         var hasMore = rows.Count > limit;
         if (hasMore) rows.RemoveAt(rows.Count - 1);
         var items = rows.Select(ToItem).ToList();
-        return new NotificationReplayPage(items, hasMore && items.Count > 0 ? items[^1].SequenceNumber : null, watermark);
+        var nextCursor = hasMore && items.Count > 0
+            ? new NotificationReplayCursor(watermark, items[^1].OccurredAtUtc, items[^1].SequenceNumber).Encode()
+            : null;
+        return new NotificationReplayPage(items, nextCursor, watermark);
     }
 
     private static NotificationItem ToItem(NotificationItemRow row) => new(row.NotificationId, row.SequenceNumber, row.Operation, row.Status, row.ProductId, row.ProductName, row.ProductVersion, row.OccurredAtUtc, row.ErrorCode, row.DeliveryStatus, row.DeliveredAtUtc, row.ReadAtUtc);

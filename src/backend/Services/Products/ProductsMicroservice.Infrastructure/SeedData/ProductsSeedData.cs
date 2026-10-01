@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Medallion.Threading;
 using Microsoft.EntityFrameworkCore;
 using ProductsMicroservice.Core.Domain.Entities;
 using ProductsMicroservice.Core.Domain.Services;
@@ -14,23 +13,10 @@ public static class ProductsSeedData
 
     public static async Task SeedAsync(
         ApplicationDbContext dbContext,
-        IDistributedLockProvider? lockProvider = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(dbContext);
-
-        if (lockProvider is null)
-        {
-            await SeedCoreAsync(dbContext, cancellationToken);
-            return;
-        }
-
-        IDistributedLock seedLock = lockProvider.CreateLock("lock:products-seed-data");
-        await using (await seedLock.AcquireAsync(TimeSpan.FromMinutes(1)))
-        {
-            // Recheck the database after acquiring the lock so waiting pods skip the insert.
-            await SeedCoreAsync(dbContext, cancellationToken);
-        }
+        await SeedCoreAsync(dbContext, cancellationToken);
     }
 
     private static async Task SeedCoreAsync(
@@ -38,23 +24,21 @@ public static class ProductsSeedData
         CancellationToken cancellationToken)
     {
         IReadOnlyList<Product> products = await LoadAsync(cancellationToken);
-        Guid[] productIds = products.Select(product => product.ProductId).ToArray();
-        HashSet<Guid> existingProductIds = await dbContext.Products
-            .AsNoTracking()
-            .Where(product => productIds.Contains(product.ProductId))
-            .Select(product => product.ProductId)
-            .ToHashSetAsync(cancellationToken);
-
-        Product[] missingProducts = products
-            .Where(product => !existingProductIds.Contains(product.ProductId))
-            .ToArray();
-        if (missingProducts.Length == 0)
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        foreach (Product product in products)
         {
-            return;
+            // The database resolves a concurrent Job retry atomically. Conflicts on other
+            // unique keys still fail, rather than silently hiding inconsistent seed data.
+            await dbContext.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO "Products"
+                    ("ProductId", "ProductName", "DisplayName", "UnitPrice", "QuantityInStock", "Version")
+                VALUES
+                    ({product.ProductId}, {product.ProductName}, {product.DisplayName},
+                     {product.UnitPrice}, {product.QuantityInStock}, {product.Version})
+                ON CONFLICT ("ProductId") DO NOTHING
+                """, cancellationToken);
         }
-
-        await dbContext.Products.AddRangeAsync(missingProducts, cancellationToken);
-        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 
     private static async Task<IReadOnlyList<Product>> LoadAsync(CancellationToken cancellationToken)

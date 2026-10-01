@@ -106,7 +106,10 @@ const en = {
   "error.title": "Something went wrong",
   "error.unexpected": "An unexpected error occurred.",
   "error.critical": "A critical error occurred.",
+  "error.serviceUnavailable": "Service temporarily unavailable",
+  "error.serviceUnavailableDetail": "We can't load this page right now. Please try again in a little while.",
   "error.retry": "Try again",
+  "error.retrying": "Trying again…",
 } as const;
 
 const zh: Record<keyof typeof en, string> = {
@@ -215,7 +218,10 @@ const zh: Record<keyof typeof en, string> = {
   "error.title": "出错了",
   "error.unexpected": "发生了意外错误。",
   "error.critical": "发生了严重错误。",
+  "error.serviceUnavailable": "服务暂不可用",
+  "error.serviceUnavailableDetail": "当前无法加载页面，请稍后再试。",
   "error.retry": "重试",
+  "error.retrying": "正在重试…",
 };
 
 export type TranslationKey = keyof typeof en;

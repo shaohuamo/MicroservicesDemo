@@ -70,9 +70,12 @@ describe("updateProduct", () => {
     const request: ProductUpdateRequest = { productId: "1", displayName: "Updated", unitPrice: 2.0, quantityInStock: 50, version: 3 };
     vi.mocked(api.put).mockResolvedValue({ data: request });
 
-    const result = await updateProduct(request);
+    const operation = { request, idempotencyKey: "7f277273-b334-47f9-8b59-d37aa3473665" };
+    const result = await updateProduct(operation);
     expect(result).toEqual(request);
-    expect(api.put).toHaveBeenCalledWith("/products", request);
+    expect(api.put).toHaveBeenCalledWith("/products", request, {
+      headers: { "Idempotency-Key": operation.idempotencyKey },
+    });
   });
 });
 
@@ -80,10 +83,12 @@ describe("deleteProduct", () => {
   it("DELETEs product by id", async () => {
     vi.mocked(api.delete).mockResolvedValue({ data: true });
 
-    const result = await deleteProduct({ productId: "del-id", version: 4 });
+    const operation = { request: { productId: "del-id", version: 4 }, idempotencyKey: "7f277273-b334-47f9-8b59-d37aa3473665" };
+    const result = await deleteProduct(operation);
     expect(result).toBe(true);
     expect(api.delete).toHaveBeenCalledWith("/products/del-id", {
       data: { version: 4 },
+      headers: { "Idempotency-Key": operation.idempotencyKey },
     });
   });
 });

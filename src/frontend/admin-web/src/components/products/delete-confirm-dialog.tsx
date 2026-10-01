@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useProductOperationKey } from "@/hooks/use-product-operation-key";
 import type { ProductResponse } from "@/types/product";
 import { useDeleteProduct } from "@/hooks/use-products";
 import { useT } from "@/lib/i18n/provider";
@@ -20,6 +21,8 @@ export function DeleteConfirmDialog({
   product,
 }: DeleteConfirmDialogProps) {
   const deleteMutation = useDeleteProduct();
+  const operationKey = useProductOperationKey();
+  const submitInFlight = useRef(false);
   const t = useT();
   const queryClient = useQueryClient();
   const [refreshOnClose, setRefreshOnClose] = useState(false);
@@ -35,23 +38,26 @@ export function DeleteConfirmDialog({
     : undefined;
 
   async function handleDelete() {
-    if (!product) return;
+    if (!product || submitInFlight.current) return;
+    submitInFlight.current = true;
     try {
-      await deleteMutation.mutateAsync({
-        productId: product.productId,
-        version: product.version,
-      });
+      const request = { productId: product.productId, version: product.version };
+      await deleteMutation.mutateAsync({ request, idempotencyKey: operationKey.getKey(request) });
       handleOpenChange(false);
     } catch (error) {
+      operationKey.handleError(error);
       const errorCode = getApiErrorCode(error);
       if (errorCode === "product.not_found" || errorCode === "product.concurrency_conflict") {
         setRefreshOnClose(true);
       }
+    } finally {
+      submitInFlight.current = false;
     }
   }
 
   function handleOpenChange(nextOpen: boolean) {
     if (!nextOpen) {
+      operationKey.reset();
       deleteMutation.reset();
 
       if (refreshOnClose) {

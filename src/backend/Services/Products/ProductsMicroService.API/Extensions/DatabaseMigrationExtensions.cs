@@ -1,4 +1,3 @@
-using Medallion.Threading;
 using Microsoft.EntityFrameworkCore;
 using ProductsMicroservice.Infrastructure.DbContext;
 using ProductsMicroservice.Infrastructure.SeedData;
@@ -39,9 +38,7 @@ public static class DatabaseMigrationExtensions
         try
         {
             logger.LogInformation("Seeding Products database.");
-            await ProductsSeedData.SeedAsync(
-                dbContext,
-                scope.ServiceProvider.GetRequiredService<IDistributedLockProvider>());
+            await ProductsSeedData.SeedAsync(dbContext);
         }
         catch (Exception exception)
         {

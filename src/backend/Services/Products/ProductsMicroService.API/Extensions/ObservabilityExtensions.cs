@@ -6,6 +6,7 @@ using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using ProductsMicroservice.Core.Diagnostics;
 using ProductsMicroservice.Infrastructure.HostedServices;
+using ProductsMicroservice.Infrastructure.Redis;
 
 namespace ProductsMicroService.API.Extensions
 {
@@ -43,6 +44,12 @@ namespace ProductsMicroService.API.Extensions
                         options.Filter = (ctx) =>
                         !ctx.ToString().Contains("CLIENT", StringComparison.OrdinalIgnoreCase);
                     })
+                    .ConfigureRedisInstrumentation((services, instrumentation) =>
+                        services.GetRequiredService<IProductsRedisConnectionProvider>()
+                            .RegisterConnectionObserver(connection =>
+                            {
+                                instrumentation.AddConnection(connection);
+                            }))
                     .AddNpgsql()
                     .AddAspNetCoreInstrumentation(options =>
                     {

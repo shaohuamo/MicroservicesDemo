@@ -41,36 +41,22 @@ public sealed class NotificationsController(
             cancellationToken));
     }
 
-    /// <summary>
-    /// Replays notifications for the current user after a known sequence number.
-    /// The sequence number is the notification SequenceNumber, which corresponds
-    /// to the Last-Event-ID sent by the browser when an SSE connection reconnects.
-    /// Use this endpoint to recover notifications missed while the client was disconnected.
-    /// </summary>
-    /// <param name="afterSequence">Returns only notifications with a SequenceNumber greater than this value. It corresponds to the browser's Last-Event-ID for an SSE reconnect.</param>
-    /// <param name="upToSequence">Optional inclusive upper sequence boundary for the replay.</param>
+    /// <summary>Replays all notifications without an in-app acknowledgement, newest operation first.</summary>
+    /// <param name="cursor">Opaque descending page cursor returned by the previous replay page.</param>
     /// <param name="limit">Maximum number of notifications to return, from 1 through 100.</param>
     /// <param name="cancellationToken">Cancels the query if the HTTP request is aborted.</param>
-    /// <returns>A page of replayable notifications.</returns>
-    // GET /api/notifications/replay?afterSequence=100&upToSequence=200&limit=100
     [HttpGet("replay")]
     public async Task<ActionResult<NotificationReplayPage>> Replay(
-        [FromQuery] long afterSequence = 0,
-        [FromQuery] long? upToSequence = null,
+        [FromQuery] string? cursor = null,
         [FromQuery] int limit = 100,
         CancellationToken cancellationToken = default)
     {
-        if (afterSequence < 0 || upToSequence is <= 0 || limit is < 1 or > 100)
+        NotificationReplayCursor? boundary = null;
+        if (limit is < 1 or > 100 || (cursor is not null && !NotificationReplayCursor.TryDecode(cursor, out boundary)))
         {
-            return ValidationProblem("Sequence values and limit are invalid.");
+            return ValidationProblem(detail: "Replay cursor and limit are invalid.", statusCode: 400);
         }
-
-        return Ok(await getterService.GetReplayAsync(
-            GetRequiredUserId(),
-            afterSequence,
-            upToSequence,
-            limit,
-            cancellationToken));
+        return Ok(await getterService.GetReplayAsync(GetRequiredUserId(), boundary, limit, cancellationToken));
     }
 
     // POST /api/notifications/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx/ack

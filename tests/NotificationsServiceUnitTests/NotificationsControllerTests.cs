@@ -112,4 +112,17 @@ public class NotificationsControllerTests
         _getterService.Verify(value => value.GetReplayAsync(It.IsAny<string>(), It.IsAny<NotificationReplayCursor?>(),
             It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
     }
+
+    [Fact]
+    public async Task Replay_WithLegacyDescendingCursor_ReturnsBadRequestWithoutQuerying()
+    {
+        var token = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(
+            "{\"Watermark\":100,\"BeforeSequence\":53,\"BeforeOccurredAtUtc\":\"2026-10-02T00:00:00Z\"}"));
+
+        var result = await _controller.Replay(token);
+
+        result.Result.Should().BeAssignableTo<ObjectResult>().Which.StatusCode.Should().Be(400);
+        _getterService.Verify(value => value.GetReplayAsync(It.IsAny<string>(), It.IsAny<NotificationReplayCursor?>(),
+            It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
 }

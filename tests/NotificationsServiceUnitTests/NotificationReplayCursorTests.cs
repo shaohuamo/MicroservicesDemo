@@ -14,9 +14,9 @@ public sealed class NotificationReplayCursorTests
         var timestamp = new DateTimeOffset(2026, 10, 2, 12, 0, 0, TimeSpan.FromHours(8)).AddTicks(1234560);
         var expected = new NotificationReplayCursor(200, timestamp, 53);
         NotificationReplayCursor.TryDecode(expected.Encode(), out var actual).Should().BeTrue();
-        actual.Should().BeEquivalentTo(expected, options => options.Excluding(value => value.BeforeOccurredAtUtc.Offset));
-        actual!.BeforeOccurredAtUtc.Should().Be(timestamp);
-        actual.BeforeOccurredAtUtc.Offset.Should().Be(TimeSpan.Zero);
+        actual.Should().BeEquivalentTo(expected, options => options.Excluding(value => value.AfterOccurredAtUtc.Offset));
+        actual!.AfterOccurredAtUtc.Should().Be(timestamp);
+        actual.AfterOccurredAtUtc.Offset.Should().Be(TimeSpan.Zero);
     }
 
     [Theory]
@@ -37,18 +37,28 @@ public sealed class NotificationReplayCursorTests
     [InlineData(10, 0)]
     [InlineData(10, -1)]
     [InlineData(10, 11)]
-    public void TryDecode_InvalidSequenceBoundary_ReturnsFalse(long watermark, long beforeSequence)
+    public void TryDecode_InvalidSequenceBoundary_ReturnsFalse(long watermark, long afterSequence)
     {
-        var token = new NotificationReplayCursor(watermark, DateTimeOffset.UtcNow, beforeSequence).Encode();
+        var token = new NotificationReplayCursor(watermark, DateTimeOffset.UtcNow, afterSequence).Encode();
         NotificationReplayCursor.TryDecode(token, out _).Should().BeFalse();
     }
 
     [Fact]
     public void TryDecode_MalformedTimestampAndOversizedToken_ReturnsFalse()
     {
-        var token = Convert.ToBase64String(Encoding.UTF8.GetBytes("{\"Watermark\":10,\"BeforeSequence\":5,\"BeforeOccurredAtUtc\":\"invalid\"}"));
+        var token = Convert.ToBase64String(Encoding.UTF8.GetBytes("{\"Watermark\":10,\"AfterSequence\":5,\"AfterOccurredAtUtc\":\"invalid\"}"));
         NotificationReplayCursor.TryDecode(token, out _).Should().BeFalse();
         NotificationReplayCursor.TryDecode(new string('a', 1025), out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public void TryDecode_LegacyDescendingCursor_ReturnsFalse()
+    {
+        var token = Convert.ToBase64String(Encoding.UTF8.GetBytes(
+            "{\"Watermark\":100,\"BeforeSequence\":53,\"BeforeOccurredAtUtc\":\"2026-10-02T00:00:00Z\"}"));
+
+        NotificationReplayCursor.TryDecode(token, out var cursor).Should().BeFalse();
+        cursor.Should().BeNull();
     }
 
     #endregion

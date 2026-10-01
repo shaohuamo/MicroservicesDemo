@@ -28,7 +28,7 @@ internal sealed class NotificationGetRepository(
         return new NotificationHistoryPage(items, hasMore && items.Count > 0 ? items[^1].SequenceNumber : null, unreadCount, watermark);
     }
 
-    /// <summary>Returns unacknowledged in-app notifications, newest operation first.</summary>
+    /// <summary>Returns unacknowledged in-app notifications, oldest operation first.</summary>
     public async Task<NotificationReplayPage> GetReplayAsync(string userId, NotificationReplayCursor? cursor, int limit, CancellationToken cancellationToken)
     {
         await using var connection = await connectionFactory.OpenConnectionAsync(cancellationToken);
@@ -36,7 +36,7 @@ internal sealed class NotificationGetRepository(
             sqlProvider.Get("Select_Notification_003"), new { UserId = userId }, cancellationToken: cancellationToken));
         var rows = (await connection.QueryAsync<NotificationItemRow>(new CommandDefinition(
             sqlProvider.Get("Select_Notification_004"),
-            new { UserId = userId, Watermark = watermark, BeforeOccurredAtUtc = cursor?.BeforeOccurredAtUtc, BeforeSequence = cursor?.BeforeSequence, Take = limit + 1 },
+            new { UserId = userId, Watermark = watermark, AfterOccurredAtUtc = cursor?.AfterOccurredAtUtc, AfterSequence = cursor?.AfterSequence, Take = limit + 1 },
             cancellationToken: cancellationToken))).ToList();
         var hasMore = rows.Count > limit;
         if (hasMore) rows.RemoveAt(rows.Count - 1);

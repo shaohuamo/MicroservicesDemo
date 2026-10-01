@@ -28,7 +28,7 @@ public sealed class NotificationsGetterServiceTests
     }
 
     [Fact]
-    public async Task GetReplayAsync_DelegatesDescendingCursorAndCancellationToken()
+    public async Task GetReplayAsync_DelegatesAscendingCursorAndCancellationToken()
     {
         using var cancellation = new CancellationTokenSource();
         var cursor = new NotificationReplayCursor(100, DateTimeOffset.UtcNow, 50);

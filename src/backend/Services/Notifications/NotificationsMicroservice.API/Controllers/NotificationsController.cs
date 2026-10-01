@@ -41,8 +41,8 @@ public sealed class NotificationsController(
             cancellationToken));
     }
 
-    /// <summary>Replays all notifications without an in-app acknowledgement, newest operation first.</summary>
-    /// <param name="cursor">Opaque descending page cursor returned by the previous replay page.</param>
+    /// <summary>Replays all notifications without an in-app acknowledgement, oldest operation first.</summary>
+    /// <param name="cursor">Opaque ascending page cursor returned by the previous replay page.</param>
     /// <param name="limit">Maximum number of notifications to return, from 1 through 100.</param>
     /// <param name="cancellationToken">Cancels the query if the HTTP request is aborted.</param>
     [HttpGet("replay")]

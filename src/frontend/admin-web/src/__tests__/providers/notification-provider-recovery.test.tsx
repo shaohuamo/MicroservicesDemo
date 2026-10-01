@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
-import { getNotifications } from "@/lib/api/notifications";
+import { acknowledgeNotification, getNotifications } from "@/lib/api/notifications";
 import { NotificationProvider, useNotifications } from "@/providers/notification-provider";
 
 vi.mock("@/lib/api/notifications", () => ({
@@ -33,12 +33,19 @@ function Status() {
   return <div>{`${loadError}:${realtimeStatus}`}</div>;
 }
 
+function ListState() {
+  const { notifications, unreadCount } = useNotifications();
+  return <div>{`${notifications.map((item) => item.sequenceNumber).join(",")}:${unreadCount}`}</div>;
+}
+
 describe("notification connection recovery", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.stubGlobal("EventSource", FakeEventSource);
     sources.length = 0;
     vi.mocked(getNotifications).mockReset();
+    vi.mocked(acknowledgeNotification).mockReset();
+    vi.mocked(acknowledgeNotification).mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -102,5 +109,36 @@ describe("notification connection recovery", () => {
     expect(sources).toHaveLength(1);
     act(() => { sources[0].onopen?.(new Event("open")); });
     expect(screen.getByText("false:connected")).toBeInTheDocument();
+  });
+
+  it("keeps the list descending and counts duplicates once when SSE replay arrives oldest first", async () => {
+    vi.mocked(getNotifications).mockResolvedValue({
+      items: [], nextBeforeSequence: null, unreadCount: 0, watermark: 0,
+    });
+    render(
+      <NotificationProvider enabled userId="user-1">
+        <ListState />
+      </NotificationProvider>,
+    );
+    await act(async () => { await Promise.resolve(); });
+    const receive = sources[0].addEventListener.mock.calls.find(([name]) => name === "notification")?.[1] as (event: MessageEvent<string>) => void;
+    const oldest = {
+      notificationId: "oldest", sequenceNumber: 100, operation: "Add", status: "Success",
+      productId: null, productName: null, occurredAtUtc: "2026-01-01T00:00:00Z", errorCode: null,
+    };
+    const newest = { ...oldest, notificationId: "newest", sequenceNumber: 50, occurredAtUtc: "2026-01-02T00:00:00Z" };
+
+    await act(async () => {
+      receive(new MessageEvent("notification", { data: JSON.stringify(oldest) }));
+      receive(new MessageEvent("notification", { data: JSON.stringify(newest) }));
+    });
+    expect(screen.getByText("100,50:2")).toBeInTheDocument();
+
+    await act(async () => {
+      receive(new MessageEvent("notification", { data: JSON.stringify(oldest) }));
+    });
+    expect(screen.getByText("100,50:2")).toBeInTheDocument();
+    expect(acknowledgeNotification).toHaveBeenCalledWith("oldest");
+    expect(acknowledgeNotification).toHaveBeenCalledWith("newest");
   });
 });

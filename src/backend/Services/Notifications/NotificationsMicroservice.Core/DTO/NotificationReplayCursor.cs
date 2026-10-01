@@ -2,8 +2,8 @@ using System.Text.Json;
 
 namespace NotificationsMicroservice.Core.DTO;
 
-/// <summary>A stable descending replay boundary, including the scan's sequence watermark.</summary>
-public sealed record NotificationReplayCursor(long Watermark, DateTimeOffset BeforeOccurredAtUtc, long BeforeSequence)
+/// <summary>A stable ascending replay boundary, including the scan's sequence watermark.</summary>
+public sealed record NotificationReplayCursor(long Watermark, DateTimeOffset AfterOccurredAtUtc, long AfterSequence)
 {
     public string Encode() => Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(this));
 
@@ -14,9 +14,10 @@ public sealed record NotificationReplayCursor(long Watermark, DateTimeOffset Bef
         try
         {
             var decoded = JsonSerializer.Deserialize<NotificationReplayCursor>(Convert.FromBase64String(token));
-            if (decoded is null || decoded.Watermark <= 0 || decoded.BeforeSequence <= 0
-                || decoded.BeforeSequence > decoded.Watermark || decoded.BeforeOccurredAtUtc == default) return false;
-            cursor = decoded with { BeforeOccurredAtUtc = decoded.BeforeOccurredAtUtc.ToUniversalTime() };
+            // Legacy Before... cursors deserialize with empty After... boundaries and are rejected.
+            if (decoded is null || decoded.Watermark <= 0 || decoded.AfterSequence <= 0
+                || decoded.AfterSequence > decoded.Watermark || decoded.AfterOccurredAtUtc == default) return false;
+            cursor = decoded with { AfterOccurredAtUtc = decoded.AfterOccurredAtUtc.ToUniversalTime() };
             return true;
         }
         catch (Exception exception) when (exception is FormatException or JsonException)

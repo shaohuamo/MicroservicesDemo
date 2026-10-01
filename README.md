@@ -294,7 +294,7 @@
 - **死信与人工重放**：Notifications 使用 quorum 主队列；队列声明设置 10 秒消息 TTL 和投递次数限制，RabbitMQ 将符合死信条件的消息送往 DLQ。操作人员手动运行 Azure DevOps 流水线，在 AKS 中启动一次性重放 Job。
 - **在线与离线投递**
 
-  - **投递规则**：在线投递等待浏览器 ACK，失败后重试并降级邮件；站内 ACK 独立于邮件状态记录，SSE 建连按操作发生时间降序补发所有未站内确认通知。BFF Presence 支持实时路由，`SequenceNumber` 用于分页上界和相同时间的稳定排序。
+  - **投递规则**：在线投递等待浏览器 ACK，失败后重试并降级邮件；站内 ACK 独立于邮件状态记录，SSE 建连按操作发生时间升序补发所有未站内确认通知，先旧后新。BFF Presence 支持实时路由，`SequenceNumber` 用于分页上界和相同时间的稳定排序。
   - **通知工作流程**：
 
     1. **持久化与发布：**Products Service 在同一事务中提交商品操作和 `ProductOperationOutbox`。Outbox Dispatcher 将结果发布到 RabbitMQ。
@@ -302,16 +302,22 @@
     2. **建立 SSE 连接：**用户登录后，浏览器通过 `EventSource` 请求 `/api/notifications/stream`。
        - BFF 注册本地 SSE 连接，异步连接 Redis 并订阅 `notifications:bff:{instanceId}`。每个 BFF 进程共用一个频道；`instanceId` 由实例名称与随机 UUID 组成。Redis 故障不会断开现有 SSE，也不阻止新连接建立及数据库回放。
     3. **记录在线状态与回放：**Redis 可用后，BFF 将 `{instanceId}:{connectionId}` 写入 `notifications:presence:{userId}` 有序集合。分数为过期时间，默认 TTL 为 45 秒。
-       - BFF 在首次回放前最多等待 1 秒，让 Redis 订阅和本连接的在线记录就绪，随后进行一轮完整的未站内 ACK 回放，包含正在发送邮件和已邮件送达的通知，按 `OccurredAtUtc DESC, SequenceNumber DESC` 分页。分页游标固定本轮序号上界，回放期间暂存实时消息并按 `notificationId` 去重；不使用浏览器 `Last-Event-ID` 跳过通知。回放后每 15 秒刷新在线记录，连接关闭时删除该成员。Redis 恢复时重新订阅并恢复在线记录。
+       - BFF 在首次回放前最多等待 1 秒，让 Redis 订阅和本连接的在线记录就绪，随后进行一轮完整的未站内 ACK 回放，包含正在发送邮件和已邮件送达的通知，按 `OccurredAtUtc ASC, SequenceNumber ASC` 分页。分页游标固定本轮序号上界，回放期间暂存实时消息并按 `notificationId` 去重；回放完成后将缓冲消息按相同顺序发送，时间比较保留微秒精度。不使用浏览器 `Last-Event-ID` 跳过通知。回放后每 15 秒刷新在线记录，连接关闭时删除该成员。Redis 恢复时重新订阅并恢复在线记录。
     4. **实时投递：**Delivery Worker 领取通知并清理过期在线成员。若仍有有效成员且当前领取轮次未超过实时投递上限，Worker 向对应 BFF 实例频道发布通知。
        - BFF 按 `userId` 找到本进程的 SSE 连接并推送；浏览器调用幂等 ACK 接口后记录 `InAppAcknowledgedAtUtc`。可重试状态变为 `DeliveredInApp`，邮件相关状态保留，发送中的邮件任务版本号和租约不受影响。
     5. **离线与补偿：**Worker 从通知创建时起至少留出 20 秒等待站内 ACK；邮件发送开始前 ACK 落库会阻止邮件补偿。没有有效在线记录或 Redis 调用失败时，窗口结束后仍未 ACK 才可转入 `SendingEmail`，通过 Resend 发邮件。
        - 同一条通知默认只有前两次 Worker 领取轮次可以尝试通过 Redis 向 BFF 实时发布。每次领取都会计数，即使当次没有在线记录或 Redis 调用失败，实际发布次数也可能是 0、1 或 2。发布成功后等待 5 秒 ACK，未收到才进入下一轮；该次数与 SSE 连接数量无关，也不包含 BFF 的数据库补拉。
-       - BFF 检测到 Redis 不可用时，每 5 秒按当前会话身份从 Notifications API 的 `/replay` 接口分页补拉未 ACK 通知，经原 SSE 推送给浏览器；恢复订阅和在线记录后完成最后一轮补拉。补拉与建连回放使用相同的降序游标协议，从所有未站内 ACK 记录起始处扫描。在 1 秒内就绪且回放期间没有断连时，建连只执行一轮初始化回放；一轮可包含多次分页请求，每页最多 100 条。等待超时仍建立 SSE，随后执行补偿扫描；回放期间或建连后发生断连时也保留补偿扫描。浏览器按 `notificationId` 去重并重试失败的 ACK。若只有 Notifications API 发布端故障而 BFF 的 Redis 连接正常，需等 SSE 重连时回放。
+       - BFF 检测到 Redis 不可用时，每 5 秒按当前会话身份从 Notifications API 的 `/replay` 接口分页补拉未 ACK 通知，经原 SSE 推送给浏览器；恢复订阅和在线记录后完成最后一轮补拉。补拉与建连回放使用相同的升序游标协议，从所有未站内 ACK 记录起始处扫描。在 1 秒内就绪且回放期间没有断连时，建连只执行一轮初始化回放；一轮可包含多次分页请求，每页最多 100 条。等待超时仍建立 SSE，随后执行补偿扫描；回放期间或建连后发生断连时也保留补偿扫描。浏览器按 `notificationId` 去重并重试失败的 ACK。若只有 Notifications API 发布端故障而 BFF 的 Redis 连接正常，需等 SSE 重连时回放。
 
-通知列表负责历史展示，首屏仅加载 20 条且不会自动 ACK；SSE replay 负责恢复未站内确认的投递，断线重连时仍会执行。浏览器对两条流程的重叠通知按 `notificationId` 去重，并对 SSE 重复消息补发 ACK。
+通知列表负责历史展示，按 `SequenceNumber DESC` 排序，首屏仅加载 20 条且不会自动 ACK；SSE replay 负责恢复未站内确认的投递，按业务发生时间升序补发，断线重连时仍会执行。浏览器对两条流程的重叠通知按 `notificationId` 去重，并对 SSE 重复消息补发 ACK。
 
-Notifications API 的 `/replay` 首次请求只需 `limit`，后续以 `cursor` 参数传入响应中的 `nextCursor`；不再使用 `afterSequence` / `upToSequence`。更新时同步部署 Notifications API 和 Admin Web。开发阶段的通知数据库表、站内 ACK 字段和索引由初始化 SQL 直接创建；服务启动时仅检查数据库连接。
+每轮数据库回放和缓冲批次内部有序，不保证跨批次及实时来源的全局业务顺序。
+
+Notifications API 的 `/replay` 首次请求只需 `limit`，后续以 `cursor` 参数传入响应中的 `nextCursor`；不再使用 `afterSequence` / `upToSequence`。
+
+升序游标使用 `AfterOccurredAtUtc` 和 `AfterSequence`；旧 `Before...` 降序游标返回 400，当前回放中断后通过新 SSE 连接重新扫描全部未 ACK 通知。先完成 Notifications API 更新，再更新 Admin Web，允许 SSE 短暂断开并自动重连。
+
+现有未 ACK 部分索引可反向扫描，无需数据库迁移。开发阶段的通知数据库表、站内 ACK 字段和索引由初始化 SQL 直接创建；服务启动时仅检查数据库连接。
 
 **🔍 可观测性（Observability Stack）**
 

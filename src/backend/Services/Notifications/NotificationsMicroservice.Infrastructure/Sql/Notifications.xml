@@ -109,7 +109,7 @@
           "UserId" = @UserId;
       ]]></Select_Notification_003>
 
-      <!-- Gets all in-app-unacknowledged deliveries within a fixed watermark, newest operation first. -->
+      <!-- Gets all in-app-unacknowledged deliveries within a fixed watermark, oldest operation first. -->
       <Select_Notification_004><![CDATA[
         SELECT
           "NotificationId",
@@ -131,10 +131,10 @@
           AND "SequenceNumber" <= @Watermark
           AND "InAppAcknowledgedAtUtc" IS NULL
           AND "DeliveryStatus" <> 'DeliveredInApp'
-          AND (@BeforeOccurredAtUtc IS NULL OR
-               ("OccurredAtUtc", "SequenceNumber") < (@BeforeOccurredAtUtc, @BeforeSequence))
+          AND (@AfterOccurredAtUtc IS NULL OR
+               ("OccurredAtUtc", "SequenceNumber") > (@AfterOccurredAtUtc, @AfterSequence))
         ORDER BY
-          "OccurredAtUtc" DESC, "SequenceNumber" DESC
+          "OccurredAtUtc" ASC, "SequenceNumber" ASC
         LIMIT
           @Take;
       ]]></Select_Notification_004>

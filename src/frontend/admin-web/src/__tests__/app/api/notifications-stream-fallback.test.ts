@@ -15,6 +15,7 @@ vi.mock("@/lib/notifications/server-gateway", () => ({
   },
 }));
 import { GET } from "@/app/api/notifications/stream/route";
+import { NotificationGatewayError } from "@/lib/notifications/server-gateway";
 
 const accessToken = "header." + Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1_000) + 3_600 })).toString("base64url") + ".signature";
 const missedNotification = { notificationId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", sequenceNumber: 100, operation: "Add", status: "Success", productId: null, productName: null, occurredAtUtc: "2026-01-01T00:00:00Z", errorCode: null };
@@ -200,37 +201,84 @@ describe("notification stream unacknowledged replay and Redis fallback", () => {
     await response.body!.cancel();
   });
 
-  it("follows descending opaque cursors without dropping lower sequences or buffered messages", async () => {
+  it("follows ascending opaque cursors without dropping lower sequences or buffered messages", async () => {
     const newest = { ...missedNotification, sequenceNumber: 50, occurredAtUtc: "2026-01-02T00:00:00Z" };
     const older = { ...missedNotification, notificationId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" };
     const buffered = { ...older, notificationId: "cccccccc-cccc-cccc-cccc-cccccccccccc", sequenceNumber: 10 };
     const live = connection();
     live.activateLiveDelivery.mockReturnValue([newest, buffered]);
     mocks.registerConnection.mockResolvedValue(live);
-    mocks.fetchReplayPage.mockResolvedValueOnce({ items: [newest], nextCursor: "older-page", watermark: 200 })
-      .mockResolvedValueOnce({ items: [older], nextCursor: null, watermark: 200 });
+    mocks.fetchReplayPage.mockResolvedValueOnce({ items: [older], nextCursor: "newer-page", watermark: 200 })
+      .mockResolvedValueOnce({ items: [newest], nextCursor: null, watermark: 200 });
     const response = await open();
     const reader = response.body!.getReader();
     await reader.read();
-    expect(decode((await reader.read()).value)).toContain("id: 50");
     expect(decode((await reader.read()).value)).toContain("id: 100");
+    expect(decode((await reader.read()).value)).toContain("id: 50");
     expect(decode((await reader.read()).value)).toContain("id: 10");
-    expect(mocks.fetchReplayPage.mock.calls[1][0].cursor).toBe("older-page");
+    expect(mocks.fetchReplayPage.mock.calls[1][0].cursor).toBe("newer-page");
     await vi.advanceTimersByTimeAsync(5_000);
     expect(mocks.fetchReplayPage).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(decode((await reader.read()).value)).toContain(": heartbeat");
     await reader.cancel();
   });
 
-  it("uses the same cursor protocol for a multi-page fallback", async () => {
+  it("uses ascending cursor pagination for a multi-page fallback", async () => {
+    const newer = { ...missedNotification, notificationId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", sequenceNumber: 50, occurredAtUtc: "2026-01-02T00:00:00Z" };
     mocks.registerConnection.mockResolvedValue(connection(() => false));
     mocks.fetchReplayPage.mockResolvedValueOnce(emptyPage)
-      .mockResolvedValueOnce({ items: [], nextCursor: "older-page", watermark: 200 })
-      .mockResolvedValueOnce({ items: [missedNotification], nextCursor: null, watermark: 200 });
+      .mockResolvedValueOnce({ items: [missedNotification], nextCursor: "newer-page", watermark: 200 })
+      .mockResolvedValueOnce({ items: [newer], nextCursor: null, watermark: 200 });
     const response = await open();
+    const reader = response.body!.getReader();
+    await reader.read();
     await vi.advanceTimersByTimeAsync(5_000);
     expect(mocks.fetchReplayPage).toHaveBeenCalledTimes(3);
-    expect(mocks.fetchReplayPage.mock.calls[2][0].cursor).toBe("older-page");
-    await response.body!.cancel();
+    expect(mocks.fetchReplayPage.mock.calls[2][0].cursor).toBe("newer-page");
+    expect(decode((await reader.read()).value)).toContain("id: 100");
+    expect(decode((await reader.read()).value)).toContain("id: 50");
+    await reader.cancel();
+  });
+
+  it("flushes buffered events oldest first with microsecond precision and sequence tie-breaking", async () => {
+    const older = { ...missedNotification, sequenceNumber: 100, occurredAtUtc: "2026-01-01T00:00:00.000001Z" };
+    const newer = { ...missedNotification, notificationId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", sequenceNumber: 10, occurredAtUtc: "2026-01-01T08:00:00.000002+08:00" };
+    const tied = { ...newer, notificationId: "cccccccc-cccc-cccc-cccc-cccccccccccc", sequenceNumber: 20, occurredAtUtc: "2026-01-01T00:00:00.000002Z" };
+    const live = connection();
+    live.activateLiveDelivery.mockReturnValue([tied, newer, older]);
+    mocks.registerConnection.mockResolvedValue(live);
+    mocks.fetchReplayPage.mockResolvedValue(emptyPage);
+
+    const response = await open();
+    const reader = response.body!.getReader();
+    await reader.read();
+    expect(decode((await reader.read()).value)).toContain("id: 100");
+    expect(decode((await reader.read()).value)).toContain("id: 10");
+    expect(decode((await reader.read()).value)).toContain("id: 20");
+    await reader.cancel();
+  });
+
+  it("closes a replay with a rejected legacy cursor and starts the next connection without a cursor", async () => {
+    const live = connection();
+    mocks.registerConnection.mockResolvedValue(live);
+    mocks.fetchReplayPage.mockResolvedValueOnce({ items: [missedNotification], nextCursor: "legacy-cursor", watermark: 100 })
+      .mockRejectedValueOnce(new NotificationGatewayError("Legacy cursor rejected", 400));
+
+    const response = await open();
+    const reader = response.body!.getReader();
+    await reader.read();
+    expect(decode((await reader.read()).value)).toContain("id: 100");
+    expect(decode((await reader.read()).value)).toContain("event: server-error");
+    await vi.waitFor(() => expect(live.close).toHaveBeenCalledOnce());
+    expect((await reader.read()).done).toBe(true);
+    await reader.cancel();
+
+    mocks.registerConnection.mockResolvedValue(connection());
+    mocks.fetchReplayPage.mockResolvedValue(emptyPage);
+    const reconnected = await open({ "last-event-id": "100" });
+    expect(mocks.fetchReplayPage.mock.calls.at(-1)?.[0]).not.toHaveProperty("cursor");
+    await reconnected.body!.cancel();
   });
 
   it("closes the stream if a replay cursor repeats", async () => {

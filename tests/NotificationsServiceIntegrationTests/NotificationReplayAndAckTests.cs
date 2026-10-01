@@ -66,13 +66,13 @@ public sealed class NotificationReplayAndAckTests(NotificationsDatabaseFixture d
     }
 
     [Fact]
-    public async Task DescendingPagination_PreservesMicrosecondsTiesAndWatermarkAcrossAckAndDeletion()
+    public async Task AscendingPagination_PreservesMicrosecondsTiesAndWatermarkAcrossAckAndDeletion()
     {
         var rows = new List<Inserted>();
         var timestamp = new DateTimeOffset(2026, 10, 2, 0, 0, 0, TimeSpan.Zero);
         for (var index = 0; index < 250; index++)
             rows.Add(await InsertAsync("Pending", occurredAt: timestamp.AddTicks(index % 5 * 10)));
-        var expected = rows.OrderByDescending(row => row.OccurredAtUtc).ThenByDescending(row => row.SequenceNumber).ToList();
+        var expected = rows.OrderBy(row => row.OccurredAtUtc).ThenBy(row => row.SequenceNumber).ToList();
         var page = await database.GetRepository.GetReplayAsync("user", null, 80, default);
         var watermark = page.Watermark;
         var received = page.Items.Select(item => item.NotificationId).ToList();

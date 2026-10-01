@@ -43,6 +43,27 @@ function getHeartbeatIntervalMs() {
   return (Number.isFinite(seconds) && seconds >= 1 ? seconds : 15) * 1_000;
 }
 
+function occurredAtMicroseconds(value: string): bigint | null {
+  const milliseconds = Date.parse(value);
+  if (!Number.isFinite(milliseconds)) return null;
+
+  // Date.parse retains only milliseconds. Preserve the remaining PostgreSQL
+  // timestamp precision, including ISO timestamps carrying a UTC offset.
+  const fraction = value.match(/\.(\d+)(?:Z|[+-]\d{2}:\d{2})$/i)?.[1] ?? "";
+  const microseconds = fraction.padEnd(6, "0").slice(3, 6);
+  return BigInt(milliseconds) * BigInt(1_000) + BigInt(microseconds);
+}
+
+function compareNotificationsOldestFirst(left: NotificationItem, right: NotificationItem) {
+  const leftTime = occurredAtMicroseconds(left.occurredAtUtc);
+  const rightTime = occurredAtMicroseconds(right.occurredAtUtc);
+  if (leftTime !== null && rightTime !== null) {
+    if (leftTime < rightTime) return -1;
+    if (leftTime > rightTime) return 1;
+  }
+  return left.sequenceNumber - right.sequenceNumber;
+}
+
 function formatNotificationEvent(
   notification: NotificationItem,
   traceContext?: TraceContextCarrier,
@@ -241,11 +262,9 @@ async function handleGet(request: NextRequest) {
           await scanUndelivered(firstReplayPage, sentNotificationIds);
           if (closed) return;
 
-          // Deduplicate by identity: descending replay makes a maximum sequence
-          // unsuitable for deciding whether a buffered message was already sent.
-          const buffered = connection.activateLiveDelivery().sort((left, right) =>
-            Date.parse(right.occurredAtUtc) - Date.parse(left.occurredAtUtc)
-            || right.sequenceNumber - left.sequenceNumber);
+          // Business timestamps and persistence sequences can arrive out of order.
+          // Only notification identity proves that a buffered message was replayed.
+          const buffered = connection.activateLiveDelivery().sort(compareNotificationsOldestFirst);
           for (const notification of buffered) {
             if (sentNotificationIds.has(notification.notificationId)) continue;
             sendNotification(notification);
